@@ -1,0 +1,6 @@
+name: ChunkLimiter
+version: 1.0.0
+main: cn.kurt6.ChunkLimiter.ChunkEntityLimiter
+api-version: 1.21
+authors: [Kurt]
+folia-supported: true
