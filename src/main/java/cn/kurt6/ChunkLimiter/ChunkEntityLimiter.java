@@ -257,21 +257,49 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             Player player = (Player) sender;
             Chunk chunk = player.getLocation().getChunk();
 
-            // 统计物品
+            // 分类统计
+            Map<EntityType, Integer> entities = new HashMap<>();
             Map<Material, Integer> items = new HashMap<>();
+            int otherCount = 0;
+
             for (Entity entity : chunk.getEntities()) {
-                if (entity instanceof Item) {
-                    Item item = (Item) entity;
-                    Material type = item.getItemStack().getType();
-                    items.put(type, items.getOrDefault(type, 0) + item.getItemStack().getAmount());
+                if (entity instanceof Player) continue; // 排除玩家
+
+                if (entity instanceof LivingEntity) {
+                    // 统计生物（排除盔甲架）
+                    if (entity instanceof ArmorStand) continue;
+                    EntityType type = entity.getType();
+                    entities.put(type, entities.getOrDefault(type, 0) + 1);
+                }
+                else if (entity instanceof Item) {
+                    // 统计物品
+                    Material type = ((Item) entity).getItemStack().getType();
+                    items.put(type, items.getOrDefault(type, 0) + ((Item) entity).getItemStack().getAmount());
+                }
+                else {
+                    // 其他实体（箭、经验球等）
+                    otherCount++;
                 }
             }
 
-            // 发送统计结果
-            player.sendMessage(ChatColor.GOLD + "===== 区块实体统计 [" + chunk.getX() + ", " + chunk.getZ() + "] =====");
+            // 发送统计信息
+            player.sendMessage(ChatColor.GOLD + "===== 区块实体统计 ["+chunk.getX()+", "+chunk.getZ()+"] =====");
+
+            // 生物统计
+            player.sendMessage(ChatColor.RED + "【生物实体】");
+            entities.forEach((type, count) ->
+                    player.sendMessage(ChatColor.YELLOW + type.name() + ": " + ChatColor.GREEN + count + "个")
+            );
+
+            // 物品统计
+            player.sendMessage(ChatColor.RED + "\n【掉落物品】");
             items.forEach((mat, count) ->
                     player.sendMessage(ChatColor.AQUA + mat.name() + ": " + ChatColor.GREEN + count + "个")
             );
+
+            // 其他实体
+            player.sendMessage(ChatColor.RED + "\n【其他实体】: " + ChatColor.GREEN + otherCount + "个");
+
             return true;
         }
         return false;
