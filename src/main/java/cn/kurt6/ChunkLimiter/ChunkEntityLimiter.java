@@ -5,6 +5,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.*;
 import org.bukkit.entity.*;
+import org.bukkit.ChatColor;
 import org.bukkit.event.*;
 import org.bukkit.event.entity.*;
 import org.bukkit.inventory.ItemStack;
@@ -231,11 +232,49 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     @Override
     @SuppressWarnings("deprecation")
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        // 处理配置重载命令
         if (cmd.getName().equalsIgnoreCase("entitylimiterreload")) {
+            if (!sender.hasPermission("chunklimiter.reload")) {
+                sender.sendMessage(ChatColor.RED + "没有执行该命令的权限");
+                return true;
+            }
             reloadConfig();
             sender.sendMessage(ChatColor.GREEN + "配置已重载！");
             return true;
         }
+
+        // 处理区块信息查看命令
+        if (cmd.getName().equalsIgnoreCase("chunkinfo")) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(ChatColor.RED + "该命令只能在游戏内由玩家执行");
+                return true;
+            }
+            if (!sender.hasPermission("chunklimiter.info")) {
+                sender.sendMessage(ChatColor.RED + "没有查看区块信息的权限！");
+                return true;
+            }
+
+            Player player = (Player) sender;
+            Chunk chunk = player.getLocation().getChunk();
+
+            // 统计物品
+            Map<Material, Integer> items = new HashMap<>();
+            for (Entity entity : chunk.getEntities()) {
+                if (entity instanceof Item) {
+                    Item item = (Item) entity;
+                    Material type = item.getItemStack().getType();
+                    items.put(type, items.getOrDefault(type, 0) + item.getItemStack().getAmount());
+                }
+            }
+
+            // 发送统计结果
+            player.sendMessage(ChatColor.GOLD + "===== 区块实体统计 [" + chunk.getX() + ", " + chunk.getZ() + "] =====");
+            items.forEach((mat, count) ->
+                    player.sendMessage(ChatColor.AQUA + mat.name() + ": " + ChatColor.GREEN + count + "个")
+            );
+            return true;
+        }
         return false;
     }
+
 }
