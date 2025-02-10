@@ -8,6 +8,8 @@
 
 /chunkinfo 查看当前区块的物品统计（权限chunklimiter.info默认全部）
 
+![2](https://github.com/user-attachments/assets/302e93a9-2452-4890-814d-e2afe609961f)
+
 只在1.21.4版本进行了测试,其余版本请自行测试
 
 ![1](https://github.com/user-attachments/assets/d15a3c19-7dde-44f8-94d3-39242f383c53)
