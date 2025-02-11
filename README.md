@@ -14,4 +14,18 @@
 
 只在1.21.4版本进行了测试,其余版本请自行测试
 
-![1](https://github.com/user-attachments/assets/d15a3c19-7dde-44f8-94d3-39242f383c53)
+```
+# config.yml
+# 区块实体、掉落物限制配置，只会清理超出的部分
+entity-limits:
+  default-limit: 400      # 生物每类默认上限,未单独指定或排除则每种实体都按默认的来
+  item-limit: 1000        # 掉落物上限,注意计算的是合并后的实体堆数量
+  check-interval-ticks: 100        # 清理间隔tick，一般20为1秒
+  custom-limits:         # 单独指定生物上限
+    ZOMBIFIED_PIGLIN: 200         # 僵尸猪灵200
+  ignored-types:         # 忽略的生物类型
+    - IRON_GOLEM         # 忽略铁傀儡
+  ignored-items:         # 忽略的掉落物类型
+    - DIAMOND            # 钻石不会被清理
+    - GOLD_INGOT         # 金锭不会被清理
+```
