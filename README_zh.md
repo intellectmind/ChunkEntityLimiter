@@ -1,4 +1,4 @@
-**其他语言版本: [English](README_en.md), [中文](README.md).**
+**其他语言版本: [English](README.md), [中文](README_zh.md).**
 
 适用于Folia、Paper、Purpur、luminol等服务端的实体、掉落物区块限制清理插件
 
