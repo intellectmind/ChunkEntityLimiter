@@ -1,4 +1,4 @@
-* *用其他语言阅读:[英语](README_en.md)，[中文](README.md)。**
+**Read this in other languages: [English](README_en.md)，[中文](README.md)。**
 
 Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.
 
