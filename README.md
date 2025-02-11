@@ -2,7 +2,7 @@
 
 Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.
 
-You can modify the default configuration in the ChunkLimiter folder under the plugins folder.
+You can modify the default configuration in the ChunkEntityLimiter folder under the plugins folder.
 
 Provide the following two commands:
 
