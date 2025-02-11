@@ -16,7 +16,7 @@
 
 --------------------------------------------------------------------------------------------------------------
 
-#### Only tested in version 1.21.4, please test the remaining versions yourself.
+#### Please test the lower version yourself.
 
 ```
 # config.yml
