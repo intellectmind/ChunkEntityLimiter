@@ -6,9 +6,9 @@
 
 提供以下2个命令：
 
-/entitylimiterreload 重新加载配置（权限chunklimiter.reload默认op）
+```/entitylimiterreload```重新加载配置（权限chunklimiter.reload默认op）
 
-/chunkinfo 查看当前区块的物品统计（权限chunklimiter.info默认全部）
+```/chunkinfo```查看当前区块的物品统计（权限chunklimiter.info默认全部）
 
 ![2](https://github.com/user-attachments/assets/302e93a9-2452-4890-814d-e2afe609961f)
 
