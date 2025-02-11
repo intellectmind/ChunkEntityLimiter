@@ -2,7 +2,7 @@
 
 适用于Folia、Paper、Purpur、luminol等服务端的实体、掉落物区块限制清理插件
 
-可在plugins文件夹下的ChunkLimiter文件夹内修改默认配置
+可在plugins文件夹下的ChunkEntityLimiter文件夹内修改默认配置
 
 提供以下2个命令：
 
