@@ -12,7 +12,7 @@
 
 ```/entitylimiterreload``` Reload configuration (permission:chunklimiter.reload defaults to op)
 
-```/chunkinfo``` View the item statistics of the current block (permission:chunklimiter.info defaults to all)
+```/chunkinfo``` View the item statistics of the current chunk (permission:chunklimiter.info defaults to all)
 
 --------------------------------------------------------------------------------------------------------------
 
