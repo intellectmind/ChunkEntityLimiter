@@ -1,11 +1,15 @@
 **Read this in other languages: [English](README.md)，[中文](README_zh.md)。**
+
 --------------------------------------------------------------------------------------------------------------
+
 #### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.
+
 #### You can modify the default configuration in the ChunkEntityLimiter folder under the plugins folder.
 
 --------------------------------------------------------------------------------------------------------------
 
 #### Provide the following two commands:
+
 ```/entitylimiterreload``` Reload configuration (permission:chunklimiter.reload defaults to op)
 
 ```/chunkinfo``` View the item statistics of the current block (permission:chunklimiter.info defaults to all)
@@ -13,6 +17,7 @@
 --------------------------------------------------------------------------------------------------------------
 
 #### Only tested in version 1.21.4, please test the remaining versions yourself.
+
 ```
 # config.yml
 # Block entity and drop object restriction configuration will only clear the excess parts
@@ -31,8 +36,8 @@ entity-limits:
 
 --------------------------------------------------------------------------------------------------------------
 
+### bStats
+[![bStats](https://bstats.org/signatures/bukkit/ChunkEntityLimiter.svg)
+
 ### Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=intellectmind/ChunkEntityLimiter&type=Date)](https://star-history.com/#intellectmind/ChunkEntityLimiter&Date)
-
-### Star bStats
-[![bStats](https://bstats.org/signatures/bukkit/ChunkEntityLimiter.svg)
