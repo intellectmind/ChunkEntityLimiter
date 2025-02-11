@@ -1,18 +1,22 @@
-**其他语言版本: [English](README.md), [中文](README_zh.md).**
+**其他语言版本: [English](README.md)，[中文](README_zh.md)。**
 
-适用于Folia、Paper、Purpur、luminol等服务端的实体、掉落物区块限制清理插件
+--------------------------------------------------------------------------------------------------------------
 
-可在plugins文件夹下的ChunkEntityLimiter文件夹内修改默认配置
+#### 适用于Folia、Paper、Purpur、luminol等服务端的实体、掉落物区块限制清理插件
 
-提供以下2个命令：
+#### 可在plugins文件夹下的ChunkEntityLimiter文件夹内修改默认配置
 
-```/entitylimiterreload```重新加载配置（权限chunklimiter.reload默认op）
+--------------------------------------------------------------------------------------------------------------
 
-```/chunkinfo```查看当前区块的物品统计（权限chunklimiter.info默认全部）
+#### 提供以下2个命令：
 
-![2](https://github.com/user-attachments/assets/302e93a9-2452-4890-814d-e2afe609961f)
+```/entitylimiterreload``` 重新加载配置（权限:chunklimiter.reload 默认op）
 
-只在1.21.4版本进行了测试,其余版本请自行测试
+```/chunkinfo``` 查看当前区块的物品统计（权限:chunklimiter.info 默认全部）
+
+--------------------------------------------------------------------------------------------------------------
+
+#### 只在1.21.4版本进行了测试,其余版本请自行测试
 
 ```
 # config.yml
@@ -29,3 +33,11 @@ entity-limits:
     - DIAMOND            # 钻石不会被清理
     - GOLD_INGOT         # 金锭不会被清理
 ```
+
+--------------------------------------------------------------------------------------------------------------
+
+### bStats
+[![bStats](https://bstats.org/signatures/bukkit/ChunkEntityLimiter.svg)
+
+### Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=intellectmind/ChunkEntityLimiter&type=Date)](https://star-history.com/#intellectmind/ChunkEntityLimiter&Date)
