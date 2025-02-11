@@ -1,20 +1,20 @@
 package cn.kurt6.ChunkLimiter;
 
+import cn.kurt6.ChunkLimiter.metrics.Metrics;
+import org.bukkit.*;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.*;
 import org.bukkit.entity.*;
-import org.bukkit.ChatColor;
-import org.bukkit.event.*;
-import org.bukkit.event.entity.*;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.persistence.*;
+import org.bukkit.event.Listener;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
-import io.papermc.paper.threadedregions.scheduler.*;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
@@ -29,6 +29,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        // bStats
+        int pluginId = 24723;
+        Metrics metrics = new Metrics(this, pluginId);
+
         saveDefaultConfig();
         reloadConfig();
         getServer().getPluginManager().registerEvents(this, this);
@@ -111,7 +115,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private void scheduleWorldCleanups() {
         for (World world : getServer().getWorlds()) {
             if (isFolia) {
-                // 使用线程安全的区块遍历方式
                 Chunk[] loadedChunks = world.getLoadedChunks();
                 for (Chunk chunk : loadedChunks) {
                     if (Bukkit.isOwnedByCurrentRegion(world, chunk.getX(), chunk.getZ())) {
@@ -232,7 +235,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     @Override
     @SuppressWarnings("deprecation")
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        // 处理配置重载命令
         if (cmd.getName().equalsIgnoreCase("entitylimiterreload")) {
             if (!sender.hasPermission("chunklimiter.reload")) {
                 sender.sendMessage(ChatColor.RED + "没有执行该命令的权限");
@@ -243,7 +245,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             return true;
         }
 
-        // 处理区块信息查看命令
         if (cmd.getName().equalsIgnoreCase("chunkinfo")) {
             if (!(sender instanceof Player)) {
                 sender.sendMessage(ChatColor.RED + "该命令只能在游戏内由玩家执行");
@@ -257,7 +258,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             Player player = (Player) sender;
             Chunk chunk = player.getLocation().getChunk();
 
-            // 分类统计
             Map<EntityType, Integer> entities = new HashMap<>();
             Map<Material, Integer> items = new HashMap<>();
             int otherCount = 0;
@@ -266,39 +266,32 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                 if (entity instanceof Player) continue; // 排除玩家
 
                 if (entity instanceof LivingEntity) {
-                    // 统计生物（排除盔甲架）
                     if (entity instanceof ArmorStand) continue;
                     EntityType type = entity.getType();
                     entities.put(type, entities.getOrDefault(type, 0) + 1);
                 }
                 else if (entity instanceof Item) {
-                    // 统计物品
                     Material type = ((Item) entity).getItemStack().getType();
                     items.put(type, items.getOrDefault(type, 0) + ((Item) entity).getItemStack().getAmount());
                 }
                 else {
-                    // 其他实体（箭、经验球等）
                     otherCount++;
                 }
             }
 
-            // 发送统计信息
-            player.sendMessage(ChatColor.GOLD + "===== 区块实体统计 ["+chunk.getX()+", "+chunk.getZ()+"] =====");
+            player.sendMessage(ChatColor.GOLD + "===== 区块信息统计 ["+chunk.getX()+", "+chunk.getZ()+"] =====");
 
-            // 生物统计
             player.sendMessage(ChatColor.RED + "【生物实体】");
             entities.forEach((type, count) ->
-                    player.sendMessage(ChatColor.YELLOW + type.name() + ": " + ChatColor.GREEN + count + "个")
+                    player.sendMessage(ChatColor.YELLOW + type.name() + ": " + ChatColor.GREEN + count)
             );
 
-            // 物品统计
             player.sendMessage(ChatColor.RED + "\n【掉落物品】");
             items.forEach((mat, count) ->
-                    player.sendMessage(ChatColor.AQUA + mat.name() + ": " + ChatColor.GREEN + count + "个")
+                    player.sendMessage(ChatColor.AQUA + mat.name() + ": " + ChatColor.GREEN + count)
             );
 
-            // 其他实体
-            player.sendMessage(ChatColor.RED + "\n【其他实体】: " + ChatColor.GREEN + otherCount + "个");
+            player.sendMessage(ChatColor.RED + "\n【其他实体】: " + ChatColor.GREEN + otherCount);
 
             return true;
         }
