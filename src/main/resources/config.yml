@@ -1,0 +1,45 @@
+# Entity and item drop limits configuration. It will only clear parts that exceed the limits.
+# 区块实体、掉落物限制配置，只会清理超出的部分
+entity-limits:
+  # Default maximum number of entities allowed per chunk (all entities except those with special configurations)
+  # 默认每个区块允许的最大实体数量（除特殊配置外的所有实体）
+  default-limit: 100
+  # Maximum number of item entities allowed (item drops), note that this counts the merged stack of items
+  # 物品实体的最大数量限制（掉落物）, 注意计算的是合并后的实体堆数量
+  item-limit: 300
+  # Check interval (in game ticks, 20 ticks = 1 second)
+  # 检查间隔（单位：游戏刻，20 ticks = 1秒）
+  check-interval-ticks: 600  # This means the check occurs every 30 seconds / 即每30秒检查一次
+  # Ignored entity types (these will not be counted or cleared)
+  # 忽略的实体类型（不会被计数和清理）
+  ignored-types:
+    - IRON_GOLEM    # Iron Golem / 铁傀儡
+    - PLAYER        # Player / 玩家
+  # Ignored item types (these will not be counted or cleared)
+  # 忽略的物品类型（不会被计数和清理）
+  ignored-items:
+    - DIAMOND           # Diamond / 钻石
+    - NETHERITE_INGOT   # Netherite Ingot / 下界合金锭
+    - ENCHANTED_GOLDEN_APPLE # Enchanted Golden Apple / 附魔金苹果
+  # Custom entity limits (override the default limits)
+  # 自定义实体限制（覆盖默认限制）
+  custom-limits:
+    ZOMBIE: 200     # Maximum number of Zombies / 僵尸最大数量
+    CREEPER: 200    # Maximum number of Creepers / 苦力怕最大数量
+    ZOMBIFIED_PIGLIN: 200  # Maximum number of Zombified Piglins / 猪人最大数量
+
+# Notification settings
+# 通知设置
+settings:
+  # Controls whether cleaning reports and limit warnings are sent to the console and online admins. Default: true
+  # 控制是否发送清理报告和超限警告到控制台和在线管理员，默认：true
+  enable-notifications: true
+  # Warning notification percentage (0-100). 0 means no warning, only notify players in the current chunk
+  # 预警通知百分比（0-100），0表示禁用预警，仅通知当前区块的玩家
+  notify-threshold: 90
+  # Warning cooldown time, in seconds
+  # 预警冷却时间，单位秒
+  notify-cooldown: 10
+  # Language option (en/zh)
+  # 语言选项（en/zh）
+  language: en

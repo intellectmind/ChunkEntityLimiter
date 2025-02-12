@@ -1,0 +1,26 @@
+name: ChunkEntityLimiter
+version: 1.1.0
+main: cn.kurt6.ChunkLimiter.ChunkEntityLimiter
+api-version: 1.16
+description: 通过智能清理和限制区块实体数量来优化服务器性能
+author: Kurt
+folia-supported: true
+commands:
+  chunklimit:
+    description: 区块实体限制管理系统命令
+    aliases: [climit]
+    usage: |
+      /chunklimit reload - 重载配置
+      /chunklimit stats - 查看区块统计及限制
+      /chunklimit notify [on|off] - 切换通知
+
+permissions:
+  chunklimiter.reload:
+    description: 控制是否使用重载配置命令
+    default: op
+  chunklimiter.notify:
+    description: 控制是否发送清理报告和超限警告给在线管理员
+    default: op
+  chunklimiter.stats:
+    description: 允许玩家查看所在区块的实体统计信息
+    default: true

@@ -6,7 +6,7 @@
 
   <groupId>cn.kurt6.ChunkLimiter</groupId>
   <artifactId>ChunkEntityLimiter</artifactId>
-  <version>v1.0.0</version>
+  <version>v1.1.0</version>
   <packaging>jar</packaging>
 
   <name>untitled</name>
