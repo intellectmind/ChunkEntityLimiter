@@ -2,7 +2,7 @@
 
 ----------------------------------------------------------------------------------------------------------
 
-#### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.(1.16-1.21.4)
+#### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, Bukkit, Purpur, Spigot.(1.16-1.21.4)
 
 #### Optimize the server by limiting the number of chunk entities and dropped items through passive cleaning.
 
