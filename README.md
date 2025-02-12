@@ -20,8 +20,9 @@
 
 --------------------------------------------------------------------------------------------------------------
 
+#### config.yml
+
 ```
-# config.yml
 # Entity and item drop limits configuration. It will only clear parts that exceed the limits.
 entity-limits:
   # Default maximum number of entities allowed per chunk (all entities except those with special configurations)
