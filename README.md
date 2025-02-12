@@ -62,3 +62,4 @@ settings:
 ![bStats](https://bstats.org/signatures/bukkit/ChunkEntityLimiter.svg)
 
 ### Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=intellectmind/ChunkEntityLimiter&type=Date)](https://star-history.com/#intellectmind/ChunkEntityLimiter&Date)
