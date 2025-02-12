@@ -4,34 +4,57 @@
 
 #### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.
 
+#### Optimize the server by limiting block entities and the number of dropped items to prevent player errors from causing item overflow.
+
 #### You can modify the default configuration in the ChunkEntityLimiter folder under the plugins folder.
 
 --------------------------------------------------------------------------------------------------------------
 
-#### Provide the following two commands:
+#### Provide the following 3 commands:
 
-```/entitylimiterreload``` Reload configuration (permission:chunklimiter.reload defaults to op)
+```/chunklimit reload``` Reload configuration (permission:chunklimiter.reload defaults to op)
 
-```/chunkinfo``` View the item statistics of the current chunk (permission:chunklimiter.info defaults to all)
+```/chunklimit stats``` View chunk entity statistics and restrictions (permission:chunklimiter.stats: defaults to all)
+
+```/chunklimit notify [on|off]``` Control whether to send cleaning reports and over limit warnings to online administrators (permission:chunklimiter.notify: defaults to op)
 
 --------------------------------------------------------------------------------------------------------------
 
-#### Please test the lower version yourself.
-
 ```
 # config.yml
-# Block entity and drop object restriction configuration will only clear the excess parts
+# Entity and item drop limits configuration. It will only clear parts that exceed the limits.
 entity-limits:
-  default-limit: 400      # Each type of organism has a default upper limit, and if not specified or excluded separately, each entity will follow the default limit
-  item-limit: 1000        # The upper limit of falling objects, please note that the calculation is based on the number of merged entity piles
-  check-interval-ticks: 100        # Cleaning interval tick
-  custom-limits:         # Specify individual biological limits
-    ZOMBIFIED_PIGLIN: 200
-  ignored-types:         # Neglected biological types
+  # Default maximum number of entities allowed per chunk (all entities except those with special configurations)
+  default-limit: 100
+  # Maximum number of item entities allowed (item drops), note that this counts the merged stack of items
+  item-limit: 300
+  # Check interval (in game ticks, 20 ticks = 1 second)
+  check-interval-ticks: 600  # This means the check occurs every 30 seconds
+  # Ignored entity types (these will not be counted or cleared)
+  ignored-types:
     - IRON_GOLEM
-  ignored-items:         # Neglected types of falling objects
+    - PLAYER
+  # Ignored item types (these will not be counted or cleared)
+  ignored-items:
     - DIAMOND
-    - GOLD_INGOT
+    - NETHERITE_INGOT
+    - ENCHANTED_GOLDEN_APPLE
+  # Custom entity limits (override the default limits)
+  custom-limits:
+    ZOMBIE: 200
+    CREEPER: 200
+    ZOMBIFIED_PIGLIN: 200
+
+# Notification settings
+settings:
+  # Controls whether cleaning reports and limit warnings are sent to the console and online admins. Default: true
+  enable-notifications: true
+  # Warning notification percentage (0-100). 0 means no warning, only notify players in the current chunk
+  notify-threshold: 90
+  # Warning cooldown time, in seconds
+  notify-cooldown: 10
+  # Language option (en/zh)
+  language: en
 ```
 
 --------------------------------------------------------------------------------------------------------------
