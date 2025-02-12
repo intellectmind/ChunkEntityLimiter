@@ -4,15 +4,19 @@
 
 #### 适用于Folia、Paper、Purpur、luminol等服务端的实体、掉落物区块限制清理插件
 
+#### 通过限制区块实体、掉落物数量来优化服务器，以防有些玩家的失误导致物品溢出
+
 #### 可在plugins文件夹下的ChunkEntityLimiter文件夹内修改默认配置
 
 --------------------------------------------------------------------------------------------------------------
 
-#### 提供以下2个命令：
+#### 提供以下3个命令：
 
-```/entitylimiterreload``` 重新加载配置（权限:chunklimiter.reload 默认op）
+```/chunklimit reload``` 重新加载配置（权限:chunklimiter.reload 默认op）
 
-```/chunkinfo``` 查看当前区块的物品统计（权限:chunklimiter.info 默认全部）
+```/chunklimit stats``` 查看当前区块的物品统计（权限:chunklimiter.stats 默认全部）
+
+```/chunklimit notify [on|off]``` 控制是否发送清理报告和超限警告给在线管理员（权限:chunklimiter.notify 默认op）
 
 --------------------------------------------------------------------------------------------------------------
 
