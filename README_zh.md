@@ -12,11 +12,11 @@
 
 #### 提供以下3个命令：
 
-```/chunklimit reload``` 重新加载配置（权限:chunklimiter.reload 默认op）
-
-```/chunklimit stats``` 查看当前区块的物品统计（权限:chunklimiter.stats 默认全部）
-
-```/chunklimit notify [on|off]``` 控制是否发送清理报告和超限警告给在线管理员（权限:chunklimiter.notify 默认op）
+| 命令                     | 描述                                         | 权限                             |
+|--------------------------|--------------------------------------------|----------------------------------|
+| ```/chunklimit reload```       | 重新加载配置                               | chunklimiter.reload 默认op       |
+| ```/chunklimit stats```        | 查看当前区块的物品统计                     | chunklimiter.stats 默认全部      |
+| ```/chunklimit notify [on\off]``` | 控制是否发送清理报告和超限警告给在线管理员 | chunklimiter.notify 默认op       |
 
 --------------------------------------------------------------------------------------------------------------
 
