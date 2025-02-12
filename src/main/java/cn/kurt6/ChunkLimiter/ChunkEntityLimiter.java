@@ -125,7 +125,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     }
 
     private final Object configLock = new Object();
-    private final Set<EntityType> livingEntityTypes = EnumSet.noneOf(EntityType.class);
 
     private void reloadConfiguration() {
         synchronized (configLock) {
@@ -166,13 +165,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         notifyThreshold = Math.min(100, Math.max(0, settings.getInt("notify-threshold", 90)));
         thresholdRatio = notifyThreshold / 100.0;
         notifyCooldown = settings.getInt("notify-cooldown", 10);
-
-        livingEntityTypes.clear();
-        for (EntityType type : EntityType.values()) {
-            if (LivingEntity.class.isAssignableFrom(type.getEntityClass())) {
-                livingEntityTypes.add(type);
-            }
-        }
     }
 
     private void loadMessages() {
@@ -260,7 +252,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private EntityCategory classifyEntity(Entity e) {
         if (e instanceof Item) {
             return EntityCategory.ITEM;
-        } else if (livingEntityTypes.contains(e.getType()) && !ignoredTypes.contains(e.getType())) {
+        } else if (e instanceof LivingEntity && !ignoredTypes.contains(e.getType())) {
             return EntityCategory.MOB;
         } else {
             return EntityCategory.OTHER;
@@ -340,24 +332,16 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
     }
 
-    // 按消息模板优化
-    private final Map<String, List<String>> placeholderCache = new ConcurrentHashMap<>();
-
     private String replacePlaceholders(String template, Map<String, String> replacements) {
-        List<String> placeholders = placeholderCache.computeIfAbsent(template, t -> {
-            List<String> keys = new ArrayList<>();
-            Matcher matcher = PLACEHOLDER_PATTERN.matcher(t);
-            while (matcher.find()) {
-                keys.add(matcher.group(1));
-            }
-            return keys;
-        });
-
-        String result = template;
-        for (String key : placeholders) {
-            result = result.replace("%" + key + "%", replacements.getOrDefault(key, ""));
+        StringBuffer sb = new StringBuffer();
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            String replacement = replacements.getOrDefault(key, matcher.group());
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
-        return result;
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     // 获取区块内有效实体的统计信息
