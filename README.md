@@ -2,7 +2,7 @@
 
 --------------------------------------------------------------------------------------------------------------
 
-#### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.
+#### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.(1.16-1.21.4)
 
 #### Optimize the server by limiting block entities and the number of dropped items to prevent player errors from causing item overflow.
 
