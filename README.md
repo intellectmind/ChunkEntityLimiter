@@ -14,9 +14,9 @@
 
 | Command                     | Description                                                                                       | Permission                                      |
 |--------------------------|--------------------------------------------------------------------------------------------|-------------------------------------------|
-| /chunklimit reload       | Reload configuration                                                                        | chunklimiter.reload (defaults to op)     |
-| /chunklimit stats        | View chunk entity statistics and restrictions                                               | chunklimiter.stats (defaults to all)     |
-| /chunklimit notify [on\off] | Control whether to send cleaning reports and over limit warnings to online administrators    | chunklimiter.notify (defaults to op)     |
+| ```/chunklimit reload```       | Reload configuration                                                                        | chunklimiter.reload (defaults to op)     |
+| ```/chunklimit stats```        | View chunk entity statistics and restrictions                                               | chunklimiter.stats (defaults to all)     |
+| ```/chunklimit notify [on\off]``` | Control whether to send cleaning reports and over limit warnings to online administrators    | chunklimiter.notify (defaults to op)     |
 
 --------------------------------------------------------------------------------------------------------------
 
