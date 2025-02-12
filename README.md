@@ -1,6 +1,6 @@
 **Read this in other languages: [English](README.md)，[中文](README_zh.md)。**
 
---------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
 
 #### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, and Other Server Platforms.(1.16-1.21.4)
 
@@ -8,7 +8,7 @@
 
 #### You can modify the default configuration in the ChunkEntityLimiter folder under the plugins folder.
 
---------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
 
 #### Provide the following 3 commands:
 
@@ -18,7 +18,7 @@
 | ```/chunklimit stats```        | View chunk entity statistics and restrictions                                               | chunklimiter.stats (defaults to all)     |
 | ```/chunklimit notify [on\off]``` | Control whether to send cleaning reports and over limit warnings to online administrators    | chunklimiter.notify (defaults to op)     |
 
---------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
 
 #### config.yml
 
@@ -57,7 +57,7 @@ settings:
   language: en
 ```
 
---------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
 
 ### bStats
 ![bStats](https://bstats.org/signatures/bukkit/ChunkEntityLimiter.svg)
