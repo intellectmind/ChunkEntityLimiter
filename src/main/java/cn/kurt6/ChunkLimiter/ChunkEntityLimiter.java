@@ -38,8 +38,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private String msgItemStatsLine;
     private String msgTotalStats;
     private String msgItemStats;
-    private String msgEntityCleanup;
-    private String msgChunkOverload;
+    private String msgCleanupReport;
     private String msgPreOverload;
     private String msgNotificationEnabled;
     private String msgNotificationDisabled;
@@ -84,8 +83,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         en.put("mob-stats", "&6[Mobs]");
         en.put("item-stats", "&6[Items]");
         en.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        en.put("entity-cleanup", "&6Cleaned up %mobs% mobs and %items% items");
-        en.put("chunk-overload", "&cWarning! Chunk entity limit exceeded (%current%/%max%)");
+        en.put("cleanup-report", "&6[Cleanup] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  Mobs: &c%current_mobs%/%mob_limit% &7| Items: &b%current_items%/%item_limit%");
         en.put("notification-enabled", "&aEntity notifications enabled");
         en.put("notification-disabled", "&cEntity notifications disabled");
         en.put("total-stats", "&6Total: &c%total_mobs% mobs &6| &b%total_items% items");
@@ -101,8 +99,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         zh.put("mob-stats", "&6[生物统计]");
         zh.put("item-stats", "&6[物品统计]");
         zh.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        zh.put("entity-cleanup", "&6清理完成！移除了 %mobs% 个生物和 %items% 个物品");
-        zh.put("chunk-overload", "&c警告！当前区块实体数量已超过限制（%current%/%max%）");
+        zh.put("cleanup-report", "&6[清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs%/%mob_limit% &7| &b物品: %current_items%/%item_limit%");
         zh.put("notification-enabled", "&a实体清理通知已启用");
         zh.put("notification-disabled", "&c实体清理通知已禁用");
         zh.put("total-stats", "&6总计: &c%total_mobs% 生物 &6| &b%total_items% 物品");
@@ -179,8 +176,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         msgItemStatsLine = parseMessage(messages.getOrDefault("item-stats-line", ""));
         msgTotalStats = parseMessage(messages.getOrDefault("total-stats", ""));
         msgItemStats = parseMessage(messages.getOrDefault("item-stats", ""));
-        msgEntityCleanup = parseMessage(messages.getOrDefault("entity-cleanup", ""));
-        msgChunkOverload = parseMessage(messages.getOrDefault("chunk-overload", ""));
+        msgCleanupReport = parseMessage(messages.getOrDefault("cleanup-report", ""));
         msgPreOverload = parseMessage(messages.getOrDefault("pre-overload", ""));
         msgNotificationEnabled = parseMessage(messages.getOrDefault("notification-enabled", ""));
         msgNotificationDisabled = parseMessage(messages.getOrDefault("notification-disabled", ""));
@@ -243,7 +239,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         int removedMobs = processMobs(entities.getOrDefault(EntityCategory.MOB, Collections.emptyList()));
         int removedItems = processItems(entities.getOrDefault(EntityCategory.ITEM, Collections.emptyList()));
 
-        sendCleanupReport(removedMobs, removedItems);
+        sendCleanupReport(chunk, removedMobs, removedItems);
         checkChunkStatus(chunk);
     }
 
@@ -319,16 +315,35 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         return toRemove;
     }
 
-    private void sendCleanupReport(int mobs, int items) {
-        if (mobs + items == 0) return;
+    private void sendCleanupReport(Chunk chunk, int removedMobs, int removedItems) {
+        if (removedMobs + removedItems == 0) return;
+
+        // 获取当前区块的实时统计
+        ChunkStats stats = collectChunkStats(chunk);
+        int currentMobs = stats.mobCounts.values().stream().mapToInt(Integer::intValue).sum();
+        int currentItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
 
         Map<String, String> params = new HashMap<>();
-        params.put("mobs", String.valueOf(mobs));
-        params.put("items", String.valueOf(items));
+        params.put("mobs", String.valueOf(removedMobs));
+        params.put("items", String.valueOf(removedItems));
+        params.put("x", String.valueOf(chunk.getX()));
+        params.put("z", String.valueOf(chunk.getZ()));
+        params.put("world", chunk.getWorld().getName());
+        params.put("current_mobs", String.valueOf(currentMobs));
+        params.put("mob_limit", String.valueOf(defaultLimit));
+        params.put("current_items", String.valueOf(currentItems));
+        params.put("item_limit", String.valueOf(itemLimit));
 
-        // 仅当启用通知时发送到控制台
         if (enableNotifications) {
-            getLogger().info(replacePlaceholders(msgEntityCleanup, params));
+            String message = replacePlaceholders(msgCleanupReport, params);
+
+            // 发送到控制台（去除颜色代码）
+            getLogger().info(ChatColor.stripColor(message));
+
+            // 发送给在线OP
+            Bukkit.getOnlinePlayers().stream()
+                    .filter(Player::isOp)
+                    .forEach(p -> p.sendMessage(message));
         }
     }
 
