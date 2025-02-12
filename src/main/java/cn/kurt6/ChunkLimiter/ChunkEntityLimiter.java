@@ -83,7 +83,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         en.put("mob-stats", "&6[Mobs]");
         en.put("item-stats", "&6[Items]");
         en.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        en.put("cleanup-report", "&6[Cleanup] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  Mobs: &c%current_mobs%/%mob_limit% &7| Items: &b%current_items%/%item_limit%");
+        en.put("cleanup-report", "&6[Cleanup] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  Mobs: &c%current_mobs% &7| Items: &c%current_items%");
         en.put("notification-enabled", "&aEntity notifications enabled");
         en.put("notification-disabled", "&cEntity notifications disabled");
         en.put("total-stats", "&6Total: &c%total_mobs% mobs &6| &b%total_items% items");
@@ -99,7 +99,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         zh.put("mob-stats", "&6[生物统计]");
         zh.put("item-stats", "&6[物品统计]");
         zh.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        zh.put("cleanup-report", "&6[清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs%/%mob_limit% &7| &b物品: %current_items%/%item_limit%");
+        zh.put("cleanup-report", "&6[清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs% &7| &c物品: %current_items%");
         zh.put("notification-enabled", "&a实体清理通知已启用");
         zh.put("notification-disabled", "&c实体清理通知已禁用");
         zh.put("total-stats", "&6总计: &c%total_mobs% 生物 &6| &b%total_items% 物品");
@@ -330,9 +330,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         params.put("z", String.valueOf(chunk.getZ()));
         params.put("world", chunk.getWorld().getName());
         params.put("current_mobs", String.valueOf(currentMobs));
-        params.put("mob_limit", String.valueOf(defaultLimit));
         params.put("current_items", String.valueOf(currentItems));
-        params.put("item_limit", String.valueOf(itemLimit));
 
         if (enableNotifications) {
             String message = replacePlaceholders(msgCleanupReport, params);
@@ -395,11 +393,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         });
 
         // 处理物品预警
-        stats.itemCounts.forEach((material, count) -> {
-            if (count >= itemLimit * thresholdRatio) {
-                sendTypeWarning(chunk, material.name(), count, itemLimit);
-            }
-        });
+        int totalItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
+        if (totalItems >= itemLimit * thresholdRatio) {
+            sendTypeWarning(chunk, "Items", totalItems, itemLimit);
+        }
     }
 
     private void sendTypeWarning(Chunk chunk, String typeName, int current, int limit) {
@@ -425,11 +422,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     .filter(p -> p.getWorld().equals(chunk.getWorld()))
                     .filter(p -> p.getLocation().getChunk().equals(chunk))
                     .forEach(p -> p.sendMessage(message));
-
-            // 控制台日志
-            if (enableNotifications) {
-                getLogger().warning(message);
-            }
 
             lastNotifyTimes.put(chunkKey, System.currentTimeMillis());
             if (lastNotifyTimes.size() > 1000) {
@@ -505,20 +497,18 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         Chunk chunk = player.getLocation().getChunk();
         World world = player.getWorld();
 
-        // 生物统计（过滤忽略类型）
-        Map<EntityType, Long> mobCounts = Arrays.stream(chunk.getEntities())
+        // 收集所有生物（包括被忽略的）
+        Map<EntityType, Long> allMobCounts = Arrays.stream(chunk.getEntities())
                 .filter(e -> e instanceof LivingEntity)
-                .filter(e -> !ignoredTypes.contains(e.getType()))
                 .collect(Collectors.groupingBy(
                         Entity::getType,
                         Collectors.counting()
                 ));
 
-        // 物品统计（过滤忽略类型）
-        Map<Material, Long> itemCounts = Arrays.stream(chunk.getEntities())
+        // 收集所有物品（包括被忽略的）
+        Map<Material, Long> allItemCounts = Arrays.stream(chunk.getEntities())
                 .filter(e -> e instanceof Item)
                 .map(e -> ((Item) e).getItemStack().getType())
-                .filter(material -> !ignoredItems.contains(material))
                 .collect(Collectors.groupingBy(
                         material -> material,
                         Collectors.counting()
@@ -534,35 +524,55 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         player.sendMessage(replacePlaceholders(msgChunkHeader, baseParams));
 
         // 生物统计部分
-        if (!mobCounts.isEmpty()) {
-            player.sendMessage(replacePlaceholders(msgMobStats, baseParams)); // 生物统计标题
+        if (!allMobCounts.isEmpty()) {
+            player.sendMessage(replacePlaceholders(msgMobStats, baseParams));
 
-            mobCounts.forEach((type, count) -> {
+            allMobCounts.forEach((type, count) -> {
+                boolean isIgnored = ignoredTypes.contains(type);
+                int limit = isIgnored ? -1 : customLimits.getOrDefault(type.name(), defaultLimit);
+
                 Map<String, String> params = new HashMap<>(baseParams);
-                params.put("type", type.name()); // 直接使用原始枚举名称
+                params.put("type", type.name());
                 params.put("count", String.valueOf(count));
-                params.put("limit", String.valueOf(customLimits.getOrDefault(type.name(), defaultLimit)));
+                params.put("limit", isIgnored
+                        ? (currentLang.equals("zh") ? "无上限" : "Unlimited")
+                        : String.valueOf(limit));
+
                 player.sendMessage(replacePlaceholders(msgMobStatsLine, params));
             });
         }
 
         // 物品统计部分
-        if (!itemCounts.isEmpty()) {
-            player.sendMessage(replacePlaceholders(msgItemStats, baseParams)); // 物品统计标题
+        if (!allItemCounts.isEmpty()) {
+            player.sendMessage(replacePlaceholders(msgItemStats, baseParams));
 
-            itemCounts.forEach((material, count) -> {
+            allItemCounts.forEach((material, count) -> {
+                boolean isIgnored = ignoredItems.contains(material);
+                int limit = isIgnored ? -1 : itemLimit;
+
                 Map<String, String> params = new HashMap<>(baseParams);
-                params.put("type", material.name()); // 直接使用原始枚举名称
+                params.put("type", material.name());
                 params.put("count", String.valueOf(count));
-                params.put("limit", String.valueOf(itemLimit));
+                params.put("limit", isIgnored
+                        ? (currentLang.equals("zh") ? "无上限" : "Unlimited")
+                        : String.valueOf(limit));
+
                 player.sendMessage(replacePlaceholders(msgItemStatsLine, params));
             });
         }
 
-        // 总数统计
+        // 总数统计（包括被忽略的实体）
+        long totalMobs = allMobCounts.values().stream()
+                .mapToLong(Long::longValue)
+                .sum();
+
+        long totalItems = allItemCounts.values().stream()
+                .mapToLong(Long::longValue)
+                .sum();
+
         Map<String, String> totalParams = new HashMap<>(baseParams);
-        totalParams.put("total_mobs", String.valueOf(mobCounts.values().stream().mapToLong(Long::longValue).sum()));
-        totalParams.put("total_items", String.valueOf(itemCounts.values().stream().mapToLong(Long::longValue).sum()));
+        totalParams.put("total_mobs", String.valueOf(totalMobs));
+        totalParams.put("total_items", String.valueOf(totalItems));
         player.sendMessage(replacePlaceholders(msgTotalStats, totalParams));
     }
 
