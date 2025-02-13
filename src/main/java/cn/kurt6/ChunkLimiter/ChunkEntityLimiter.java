@@ -14,6 +14,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -77,13 +78,13 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         en.put("reload-success", "&aConfiguration reloaded!");
         en.put("no-permission", "&cYou don't have permission!");
         en.put("player-only", "&cThis command can only be used in-game");
-        en.put("chunk-info-header", "&6==== Chunk Entities &7(World: %world%) (%x%,%z%) ====");
+        en.put("chunk-info-header", "&6==== Chunk Entities &7(World: %world%) (%x%,%z%) &6====");
         en.put("mob-stats-line", " &7%type%: &a%count%&7/&c%limit%");
         en.put("pre-overload", "&cWarning! %type% in chunk %world% (%chunkX%,%chunkZ%) nearing limit: %current%/%max%");
         en.put("mob-stats", "&6[Mobs]");
         en.put("item-stats", "&6[Items]");
         en.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        en.put("cleanup-report", "&6[Cleanup] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  Mobs: &c%current_mobs% &7| Items: &c%current_items%");
+        en.put("cleanup-report", "&6[Cleanup] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  &cMobs: %current_mobs% &7| &bItems: %current_items%");
         en.put("notification-enabled", "&aEntity notifications enabled");
         en.put("notification-disabled", "&cEntity notifications disabled");
         en.put("total-stats", "&6Total: &c%total_mobs% mobs &6| &b%total_items% items");
@@ -93,13 +94,13 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         zh.put("reload-success", "&a配置已重新加载！");
         zh.put("no-permission", "&c你没有执行该命令的权限");
         zh.put("player-only", "&c该命令只能在游戏中执行");
-        zh.put("chunk-info-header", "&6==== 区块实体统计 &7(世界: %world%) (%x%,%z%) ====");
+        zh.put("chunk-info-header", "&6==== 区块实体统计 &7(世界: %world%) (%x%,%z%) &6====");
         zh.put("mob-stats-line", " &7%type%: &a%count%&7/&c%limit%");
         zh.put("pre-overload", "&c警告！区块 %world% (%chunkX%,%chunkZ%) 的 %type% 数量即将超限：%current%/%max%");
         zh.put("mob-stats", "&6[生物统计]");
         zh.put("item-stats", "&6[物品统计]");
         zh.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        zh.put("cleanup-report", "&6[清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs% &7| &c物品: %current_items%");
+        zh.put("cleanup-report", "&6[清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs% &7| &b物品: %current_items%");
         zh.put("notification-enabled", "&a实体清理通知已启用");
         zh.put("notification-disabled", "&c实体清理通知已禁用");
         zh.put("total-stats", "&6总计: &c%total_mobs% 生物 &6| &b%total_items% 物品");
@@ -209,38 +210,57 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private final AtomicInteger chunkCounter = new AtomicInteger(0);
 
     private void processAllChunks() {
-        List<Chunk> allChunks = new ArrayList<>();
         for (World world : getServer().getWorlds()) {
-            allChunks.addAll(Arrays.asList(world.getLoadedChunks()));
-        }
+            // 使用快照避免并发修改问题
+            Chunk[] loadedChunks = world.getLoadedChunks();
+            for (Chunk chunk : loadedChunks) {
+                // 提前过滤无效区块
+                if (!chunk.isLoaded()) continue;
 
-        if (IS_FOLIA) {
-            allChunks.forEach(chunk ->
-                    Bukkit.getRegionScheduler().run(this, chunk.getWorld(), chunk.getX(), chunk.getZ(),
-                            task -> processChunk(chunk))
-            );
-        } else {
-            // 分批处理：每批处理10个区块，间隔1 tick
-            int batchSize = 10;
-            for (int i = 0; i < allChunks.size(); i += batchSize) {
-                List<Chunk> batch = allChunks.subList(i, Math.min(i + batchSize, allChunks.size()));
-                Bukkit.getScheduler().runTaskLater(this, () ->
-                        batch.forEach(this::processChunk), i / batchSize
-                );
+                final int x = chunk.getX();
+                final int z = chunk.getZ();
+
+                if (IS_FOLIA) {
+                    Bukkit.getRegionScheduler().run(
+                            this, world, x, z,
+                            scheduledTask -> {
+                                // 重新获取区块以确保线程安全
+                                Chunk currentChunk = world.getChunkAt(x, z);
+                                if (currentChunk.isLoaded()) {
+                                    processChunk(currentChunk);
+                                }
+                            }
+                    );
+                } else {
+                    // 非Folia：分批异步处理，避免卡顿主线程
+                    Bukkit.getScheduler().runTaskLater(this, () ->
+                                    processChunk(chunk),
+                            (chunk.getX() + chunk.getZ()) % 5 // 简单分批延迟
+                    );
+                }
             }
         }
     }
 
     private void processChunk(Chunk chunk) {
-        Map<EntityCategory, List<Entity>> entities = Arrays.stream(chunk.getEntities())
-                .filter(e -> !(e instanceof Player))
-                .collect(Collectors.groupingBy(this::classifyEntity));
+        try {
+            // 添加有效性检查
+            if (chunk == null || !chunk.isLoaded()) {
+                return;
+            }
 
-        int removedMobs = processMobs(entities.getOrDefault(EntityCategory.MOB, Collections.emptyList()));
-        int removedItems = processItems(entities.getOrDefault(EntityCategory.ITEM, Collections.emptyList()));
+            Map<EntityCategory, List<Entity>> entities = Arrays.stream(chunk.getEntities())
+                    .filter(e -> !(e instanceof Player))
+                    .collect(Collectors.groupingBy(this::classifyEntity));
 
-        sendCleanupReport(chunk, removedMobs, removedItems);
-        checkChunkStatus(chunk);
+            int removedMobs = processMobs(entities.getOrDefault(EntityCategory.MOB, Collections.emptyList()));
+            int removedItems = processItems(entities.getOrDefault(EntityCategory.ITEM, Collections.emptyList()));
+
+            sendCleanupReport(chunk, removedMobs, removedItems);
+            checkChunkStatus(chunk);
+        } catch (Exception e) {
+            Bukkit.getLogger().log(Level.WARNING, "处理区块时出错: " + chunk, e);
+        }
     }
 
     private enum EntityCategory { MOB, ITEM, OTHER }
@@ -382,6 +402,8 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     }
 
     private void checkChunkStatus(Chunk chunk) {
+        // 检查区块有效性
+        if (chunk == null || !chunk.isLoaded()) return;
         ChunkStats stats = collectChunkStats(chunk);
 
         // 处理生物预警
@@ -400,8 +422,11 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     }
 
     private void sendTypeWarning(Chunk chunk, String typeName, int current, int limit) {
-        String worldName = chunk.getWorld().getName();
-        String chunkKey = typeName + ":" + worldName + ":" + chunk.getX() + ":" + chunk.getZ();
+        World world = chunk.getWorld();
+        String worldName = world.getName();
+        int chunkX = chunk.getX();
+        int chunkZ = chunk.getZ();
+        String chunkKey = typeName + ":" + worldName + ":" + chunkX + ":" + chunkZ;
 
         if (!chunk.isLoaded()) {
             lastNotifyTimes.remove(chunkKey);
@@ -413,14 +438,20 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     .replace("%type%", typeName)
                     .replace("%current%", String.valueOf(current))
                     .replace("%max%", String.valueOf(limit))
-                    .replace("%chunkX%", String.valueOf(chunk.getX()))
-                    .replace("%chunkZ%", String.valueOf(chunk.getZ()))
+                    .replace("%chunkX%", String.valueOf(chunkX))
+                    .replace("%chunkZ%", String.valueOf(chunkZ))
                     .replace("%world%", worldName);
 
-            // 发送给区块内的所有玩家
+            // 线程安全的方式筛选玩家：通过坐标而非Chunk对象
             Bukkit.getOnlinePlayers().stream()
-                    .filter(p -> p.getWorld().equals(chunk.getWorld()))
-                    .filter(p -> p.getLocation().getChunk().equals(chunk))
+                    .filter(p -> p.getWorld().equals(world)) // 确保同世界
+                    .filter(p -> {
+                        Location loc = p.getLocation();
+                        // 直接计算区块坐标，避免调用 getChunk()
+                        int playerChunkX = loc.getBlockX() >> 4; // 等价于 loc.getChunkX()
+                        int playerChunkZ = loc.getBlockZ() >> 4; // 等价于 loc.getChunkZ()
+                        return playerChunkX == chunkX && playerChunkZ == chunkZ;
+                    })
                     .forEach(p -> p.sendMessage(message));
 
             lastNotifyTimes.put(chunkKey, System.currentTimeMillis());
