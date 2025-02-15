@@ -1,4 +1,6 @@
-**Read this in other languages: [English](README.md)，[中文](README_zh.md)。**
+# ChunkEntityLimiter
+
+![logo](https://github.com/intellectmind/ChunkEntityLimiter/blob/main/icon_86.png) **Read this in other languages: [English](README.md)，[中文](README_zh.md)。**
 
 ----------------------------------------------------------------------------------------------------------
 
