@@ -1,3 +1,5 @@
+# ![logo](https://github.com/intellectmind/ChunkEntityLimiter/blob/main/icon_40.png) ChunkEntityLimiter
+
 **其他语言版本: [English](README.md)，[中文](README_zh.md)。**
 
 ----------------------------------------------------------------------------------------------------------
