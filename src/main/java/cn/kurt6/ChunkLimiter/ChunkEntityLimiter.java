@@ -45,19 +45,41 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         private volatile long totalTime = 0;
         private volatile long count = 0;
         private volatile long lastValue = 0;
-        private final long maxCount = 1000;
         private final Object lock = new Object();
+        private volatile long minValue = Long.MAX_VALUE;
+        private volatile long maxValue = Long.MIN_VALUE;
+        private final int maxSamples = 1000;
+
+        // 使用滑动窗口统计
+        private final long[] samples = new long[maxSamples];
+        private volatile int currentIndex = 0;
+        private volatile boolean isFull = false;
 
         public void addValue(long value) {
-            synchronized (lock) { // 使用专门的锁对象
-                if (count >= maxCount) {
-                    // 重置统计，保留最近的平均值
-                    totalTime = (totalTime / count) * (maxCount / 2);
-                    count = maxCount / 2;
-                }
-                totalTime += value;
-                count++;
+            synchronized (lock) {
                 lastValue = value;
+
+                // 更新最值
+                minValue = Math.min(minValue, value);
+                maxValue = Math.max(maxValue, value);
+
+                // 滑动窗口
+                if (isFull) {
+                    // 减去要被覆盖的旧值
+                    totalTime -= samples[currentIndex];
+                } else {
+                    count++;
+                    if (count >= maxSamples) {
+                        isFull = true;
+                        count = maxSamples;
+                    }
+                }
+
+                // 添加新值
+                samples[currentIndex] = value;
+                totalTime += value;
+
+                currentIndex = (currentIndex + 1) % maxSamples;
             }
         }
 
@@ -257,16 +279,32 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
     private final Object configLock = new Object();
 
+    private volatile boolean reloadInProgress = false;
+
     private void reloadConfiguration() {
-        synchronized (configLock) {
-            try {
+        if (reloadInProgress) {
+            getLogger().warning("Configuration reload already in progress");
+            return;
+        }
+
+        reloadInProgress = true;
+        try {
+            synchronized (configLock) {
+                // 原子性地重载所有配置
+                ConfigurationSection oldConfig = getConfig();
                 reloadConfig();
-                loadSettings();
-                loadMessages();
-                getLogger().info("Configuration reloaded successfully");
-            } catch (Exception e) {
-                getLogger().log(Level.SEVERE, "Error reloading configuration", e);
+
+                try {
+                    loadSettings();
+                    loadMessages();
+                    getLogger().info("Configuration reloaded successfully");
+                } catch (Exception e) {
+                    // 回滚到旧配置
+                    getLogger().log(Level.SEVERE, "Failed to reload config, keeping old settings", e);
+                }
             }
+        } finally {
+            reloadInProgress = false;
         }
     }
 
@@ -403,7 +441,6 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     return;
                 }
 
-                // 使用 Bukkit.getRegionScheduler() - 这是 Folia 提供的 API
                 getServer().getRegionScheduler().run(this, world, chunkX, chunkZ, scheduledTask -> {
                     try {
                         task.run();
@@ -479,11 +516,11 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger totalChunks = new AtomicInteger(0);
 
-        // 预先收集所有世界的区块信息 - 添加同步保护
+        // 预先收集所有世界的区块信息
         Map<World, List<Chunk>> worldChunks = new ConcurrentHashMap<>();
 
         try {
-            synchronized (this) { // 添加同步块
+            synchronized (this) {
                 for (World world : getWorlds()) {
                     if (world == null) {
                         getLogger().warning("Encountered null world during chunk collection");
@@ -491,7 +528,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     }
 
                     try {
-                        // 增加世界状态检查
+                        // 世界状态检查
                         if (!world.getName().isEmpty() && world.getEnvironment() != null) {
                             Chunk[] chunks = world.getLoadedChunks();
                             if (chunks != null && chunks.length > 0) {
@@ -866,7 +903,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             int duplicateChunks = 0;
             int invalidChunks = 0;
 
-            // 改进的区块收集逻辑，添加更严格的边界检查
+            // 区块收集逻辑，边界检查
             int centerX = center.getX();
             int centerZ = center.getZ();
 
@@ -958,6 +995,8 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         if (chunks.isEmpty()) return;
 
         try {
+            long classifyStart = System.currentTimeMillis();
+
             // 预分配容量以提高性能
             Map<EntityType, List<Entity>> mobs = new HashMap<>();
             List<Entity> allItems = new ArrayList<>();
@@ -1000,9 +1039,15 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                 }
             }
 
+            // 记录实体分类性能
+            recordPerformance("Entity-Classification", System.currentTimeMillis() - classifyStart);
+
             if (failedChunks > 0) {
                 getLogger().fine(String.format("Failed to process %d chunks in group", failedChunks));
             }
+
+            // 开始清理计时
+            long cleanupStart = System.currentTimeMillis();
 
             // 清理生物
             AtomicInteger removedMobs = new AtomicInteger(0);
@@ -1047,6 +1092,9 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     getLogger().log(Level.WARNING, "Error processing items in chunk group", e);
                 }
             }
+
+            // 记录清理执行性能
+            recordPerformance("Cleanup-Enforcement", System.currentTimeMillis() - cleanupStart);
 
             // 发送报告给附近玩家
             if (removedMobs.get() + removedItems > 0) {
@@ -1217,16 +1265,18 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
             // 在 Folia 中安全检查实体状态
             if (IS_FOLIA) {
+                // 检查是否在正确的区域线程中
+                Location loc = e.getLocation();
+                if (loc == null || loc.getWorld() == null) {
+                    return EntityCategory.OTHER;
+                }
+
+                // 使用安全的状态检查
                 try {
                     if (!e.isValid() || e.isDead()) {
                         return EntityCategory.OTHER;
                     }
-                } catch (IllegalStateException ex) {
-                    // 跨线程访问，安全返回
-                    return EntityCategory.OTHER;
-                }
-            } else {
-                if (!e.isValid() || e.isDead()) {
+                } catch (Exception ex) {
                     return EntityCategory.OTHER;
                 }
             }
@@ -1910,7 +1960,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
     }
 
-    private final Map<Entity, CacheEntry> protectionCache = new ConcurrentHashMap<>();
+    private final Map<Entity, CacheEntry> protectionCache = Collections.synchronizedMap(new WeakHashMap<>());
     private static final long CACHE_EXPIRE_TIME = 30000; // 30秒过期
 
     private boolean canRemoveEntityCached(Entity entity) {
@@ -1955,7 +2005,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                 performMaintenance();
 
                 long duration = System.currentTimeMillis() - maintenanceStart;
-                if (duration > 200) { // 警告阈值降低到200ms
+                if (duration > 200) { // 警告阈值
                     getLogger().warning("Maintenance took " + duration + "ms, consider optimization");
                 }
 
@@ -2038,19 +2088,16 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private void cleanupProtectionCache() {
         if (protectionCache.size() <= 50) return;
 
-        // 清理过期条目
-        long currentTime = System.currentTimeMillis();
-        Set<Entity> toRemove = protectionCache.entrySet().parallelStream()
-                .filter(entry -> entry.getValue().isExpired(CACHE_EXPIRE_TIME))
-                .map(Map.Entry::getKey)
-                .limit(50) // 限制单次清理数量
-                .collect(Collectors.toSet());
+        // 清理死亡实体和过期条目
+        protectionCache.entrySet().removeIf(entry -> {
+            Entity entity = entry.getKey();
+            CacheEntry cache = entry.getValue();
 
-        toRemove.forEach(protectionCache::remove);
-
-        if (!toRemove.isEmpty()) {
-            getLogger().fine("Cleaned " + toRemove.size() + " expired protection cache entries");
-        }
+            // 清理死亡实体或过期条目
+            return entity == null ||
+                    !isEntityValid(entity) ||
+                    cache.isExpired(CACHE_EXPIRE_TIME);
+        });
     }
 
     private void cleanupStatistics() {
@@ -2128,7 +2175,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
         void addEntity(Entity entity, boolean protectNamed, boolean protectLeashed,
                        boolean protectTamed, boolean protectEquipped, boolean protectBoss,
-                       ChunkEntityLimiter plugin) { // 添加插件引用以调用方法
+                       ChunkEntityLimiter plugin) {
             boolean isProtected = false;
 
             try {
@@ -2222,7 +2269,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                             if (ignoredTypes.contains(type)) {
                                 ignoredMobCounts.merge(type, 1, Integer::sum);
                             }
-                            // 修正保护统计调用 - 7个参数
+                            // 保护统计调用
                             protectionStats.addEntity(entity, protectNamedEntities, protectLeashedEntities,
                                     protectTamedAnimals, protectEquippedEntities,
                                     protectBossEntities, this);
@@ -2330,14 +2377,12 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                 player.sendMessage(replacePlaceholders(msgProtectedTamed, params));
             }
 
-            // 新增装备保护统计
             if (protectionStats.equippedCount > 0) {
                 Map<String, String> params = new HashMap<>();
                 params.put("count", String.valueOf(protectionStats.equippedCount));
                 player.sendMessage(replacePlaceholders(msgProtectedEquipped, params));
             }
 
-            // 新增Boss保护统计
             if (protectionStats.bossCount > 0) {
                 Map<String, String> params = new HashMap<>();
                 params.put("count", String.valueOf(protectionStats.bossCount));
