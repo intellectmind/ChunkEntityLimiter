@@ -46,7 +46,6 @@ entity-limits:
   # Ignored entity types (these will not be counted or cleared)
   ignored-types:
     - IRON_GOLEM
-    - PLAYER
   # Ignored item types (these will not be counted or cleared)
   ignored-items:
     - DIAMOND
