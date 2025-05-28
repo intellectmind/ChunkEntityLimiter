@@ -57,7 +57,7 @@ entity-limits:
     CREEPER: 200    # 苦力怕
     ZOMBIFIED_PIGLIN: 200 # 猪人
 
-# 保护设置
+# 保护设置，实体超过限制时不会被优先清理，受保护的实体数量超过限制时仍将被清理
 protection:
   # 保护被命名的实体
   protect-named-entities: true
