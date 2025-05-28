@@ -66,6 +66,10 @@ protection:
   protect-leashed-entities: true
   # Prevent harming tamed pets (dogs/cats/parrots)
   protect-tamed-animals: true
+  # Protect mobs wearing armor/items (including dropped gear)
+  protect-equipped-entities: true
+  # Prevent altering boss-type mobs (Ender Dragon, Wither, etc.)
+  protect-boss-entities: true
 
 # Notification settings
 settings:
