@@ -1881,15 +1881,17 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
             if (stats != null && stats.getCount() > 0) {
                 String message = String.format(
-                        "&7%s: &a%dms &7(%s: &a%.1fms &7| 次数: &b%d&7)",
+                        "&7%s: &a%dms &7(%s: &a%.1fms &7| %s: &b%d&7)",
                         displayName,
                         stats.getLastValue(),
                         currentLang.equals("zh") ? "平均" : "avg",
                         stats.getAverage(),
+                        currentLang.equals("zh") ? "次数" : "count",
                         stats.getCount()
                 );
                 sender.sendMessage(parseMessage(message));
             }
+
         }
     }
 
