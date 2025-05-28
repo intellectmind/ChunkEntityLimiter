@@ -57,7 +57,7 @@ entity-limits:
     CREEPER: 200
     ZOMBIFIED_PIGLIN: 200
 
-# Protection Settings
+# Protection Settings, entities exceeding the limit will not be prioritized for cleaning, and protected entities exceeding the limit will still be cleaned up
 protection:
   # Protect entities with custom names
   protect-named-entities: true
