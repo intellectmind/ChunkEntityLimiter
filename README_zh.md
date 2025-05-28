@@ -18,8 +18,8 @@
 |--------------------------|--------------------------------------------|----------------------------------|
 | ```/chunklimit reload```       | 重新加载配置                               | chunklimiter.reload 默认op       |
 | ```/chunklimit stats```        | 查看当前区块的物品统计                     | chunklimiter.stats 默认全部      |
-| ```/chunklimit notify [on\off]``` | 控制是否发送清理报告和超限警告给在线管理员 | chunklimiter.notify 默认op       |
-| ```/chunklimit performance [reset]``` | 查看\重置性能监控 | chunklimiter.performance 默认op       |
+| ```/chunklimit notify [on\off]``` | 控制是否发送清理报告和超限警告给在线玩家 | chunklimiter.notify 默认op       |
+| ```/chunklimit performance [reset]``` | 查看\重置性能监控（由于有缓存机制，需要运行10轮左右才准确） | chunklimiter.performance 默认op       |
 
 ----------------------------------------------------------------------------------------------------------
 
@@ -65,6 +65,10 @@ protection:
   protect-leashed-entities: true
   # 保护驯服的动物
   protect-tamed-animals: true
+  # 保护有装备的实体
+  protect-equipped-entities: true
+  # 保护Boss实体
+  protect-boss-entities: true
 
 # 通知设置
 settings:
