@@ -12,14 +12,14 @@
 
 ----------------------------------------------------------------------------------------------------------
 
-#### Provide the following 3 commands:
+#### Provide the following 4 commands:
 
 | Command                     | Description                                                                                       | Permission                                      |
 |--------------------------|--------------------------------------------------------------------------------------------|-------------------------------------------|
 | ```/chunklimit reload```       | Reload configuration                                                                        | chunklimiter.reload (defaults to op)     |
 | ```/chunklimit stats```        | View chunk entity statistics and restrictions                                               | chunklimiter.stats (defaults to all)     |
 | ```/chunklimit notify [on\off]``` | Control whether to send cleaning reports and over limit warnings to online administrators    | chunklimiter.notify (defaults to op)     |
-| ```/chunklimit performance [reset]``` | View\Reset Performance Monitoring | chunklimiter.performance (defaults to all)       |
+| ```/chunklimit performance [reset]``` | View\Reset Performance Monitoring (Due to the caching mechanism, it takes about 10 rounds to run accurately) | chunklimiter.performance (defaults to all)       |
 
 ----------------------------------------------------------------------------------------------------------
 
