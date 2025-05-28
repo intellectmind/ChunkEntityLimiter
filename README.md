@@ -6,7 +6,7 @@
 
 #### Entity and Item Chunk Limit Cleanup Plugin for Folia, Paper, Bukkit, Purpur, Spigot.
 
-#### By employing passive cleanup methods, we can limit the number of entities and dropped items within a single block and around players, thereby optimizing the server.
+#### This optimization method enhances Minecraft server performance by intelligently limiting entity and item drop counts in both individual chunks and player-surrounding chunks.
 
 #### You can modify the default configuration in the ChunkEntityLimiter folder under the plugins folder.
 
@@ -72,7 +72,7 @@ protection:
 
 # Notification settings
 settings:
-  # Controls whether cleaning reports and limit warnings are sent to the console and online admins. Default: true
+  # Controls whether cleaning reports and limit warnings are sent to the console and online player. Default: true
   enable-notifications: true
   # Warning notification percentage (0-100). 0 means no warning, only notify players in the current chunk
   notify-threshold: 90
