@@ -72,7 +72,7 @@ protection:
 
 # 通知设置
 settings:
-  enable-notifications: true # 控制是否发送清理报告和超限警告到控制台和在线管理员，默认：true
+  enable-notifications: true # 控制是否发送清理报告和超限警告到控制台和在线玩家，默认：true
   notify-threshold: 90 # 预警通知百分比（0-100），0表示禁用预警，仅通知当前区块的玩家
   notify-cooldown: 10 # 预警冷却时间，单位秒
   notification-radius: 128.0 # 玩家通知范围
