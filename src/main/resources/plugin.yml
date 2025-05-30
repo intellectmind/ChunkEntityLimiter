@@ -1,5 +1,5 @@
 name: ChunkEntityLimiter
-version: 1.2.0
+version: 1.2.1
 main: cn.kurt6.ChunkLimiter.ChunkEntityLimiter
 api-version: 1.16
 description: 通过智能清理和限制区块实体数量来优化服务器性能

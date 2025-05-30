@@ -48,8 +48,8 @@ entity-limits:
     CREEPER: 200    # Maximum number of Creepers / 苦力怕最大数量
     ZOMBIFIED_PIGLIN: 200  # Maximum number of Zombified Piglins / 猪人最大数量
 
-# Protection Settings
-# 保护设置
+# Protection Settings, entities exceeding the limit will not be prioritized for cleaning, and protected entities exceeding the limit will still be cleaned up
+# 保护设置，实体超过限制时不会被优先清理，受保护的实体数量超过限制时仍将被清理
 protection:
   # Protect entities with custom names
   # 保护被命名的实体

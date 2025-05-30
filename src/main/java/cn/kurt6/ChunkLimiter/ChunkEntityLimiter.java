@@ -1544,11 +1544,16 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     }
 
     private boolean isEntityValid(Entity entity) {
+        if (entity == null) return false;
+
         try {
             if (IS_FOLIA) {
+                // 在Folia中，只有在正确的区域线程中才能安全访问实体状态
+                // 如果不在正确线程中，假设实体有效（保守处理）
                 try {
                     return entity.isValid() && !entity.isDead();
                 } catch (IllegalStateException e) {
+                    // 线程检查失败，返回false表示无法验证
                     return false;
                 }
             } else {
@@ -2001,11 +2006,15 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             try {
                 long maintenanceStart = System.currentTimeMillis();
 
-                // 分批处理，避免长时间阻塞
-                performMaintenance();
+                // 在Folia中，维护任务应该避免直接访问实体
+                if (IS_FOLIA) {
+                    performMaintenanceFolia();
+                } else {
+                    performMaintenance();
+                }
 
                 long duration = System.currentTimeMillis() - maintenanceStart;
-                if (duration > 200) { // 警告阈值
+                if (duration > 200) {
                     getLogger().warning("Maintenance took " + duration + "ms, consider optimization");
                 }
 
@@ -2020,6 +2029,25 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         } else {
             getServer().getScheduler().runTaskTimerAsynchronously(this, maintenance, interval, interval);
         }
+    }
+
+    private void performMaintenanceFolia() {
+        // Folia环境下的维护任务，避免访问实体状态
+        long stepStart = System.currentTimeMillis();
+
+        // 步骤1：清理通知记录
+        cleanupNotificationRecords();
+        checkMaintenanceTime(stepStart, "notification cleanup");
+
+        // 步骤2：清理保护缓存（使用Folia安全版本）
+        stepStart = System.currentTimeMillis();
+        cleanupProtectionCacheFolia();
+        checkMaintenanceTime(stepStart, "protection cache cleanup");
+
+        // 步骤3：清理统计数据
+        stepStart = System.currentTimeMillis();
+        cleanupStatistics();
+        checkMaintenanceTime(stepStart, "statistics cleanup");
     }
 
     private void performMaintenance() {
@@ -2088,7 +2116,17 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private void cleanupProtectionCache() {
         if (protectionCache.size() <= 50) return;
 
-        // 清理死亡实体和过期条目
+        if (IS_FOLIA) {
+            // Folia环境下使用安全的清理方式
+            cleanupProtectionCacheFolia();
+        } else {
+            // Paper/Spigot环境下的原有逻辑
+            cleanupProtectionCacheStandard();
+        }
+    }
+
+    private void cleanupProtectionCacheStandard() {
+        // Paper/Spigot环境下
         protectionCache.entrySet().removeIf(entry -> {
             Entity entity = entry.getKey();
             CacheEntry cache = entry.getValue();
@@ -2098,6 +2136,37 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     !isEntityValid(entity) ||
                     cache.isExpired(CACHE_EXPIRE_TIME);
         });
+    }
+
+    private void cleanupProtectionCacheFolia() {
+        // Folia
+        // 基于时间的清理策略
+        long expireTime = System.currentTimeMillis() - CACHE_EXPIRE_TIME;
+
+        try {
+            // 只清理过期的缓存条目，不检查实体状态
+            protectionCache.entrySet().removeIf(entry -> {
+                CacheEntry cache = entry.getValue();
+                return cache != null && cache.isExpired(CACHE_EXPIRE_TIME);
+            });
+
+            // 如果缓存仍然过大，清理最老的条目
+            if (protectionCache.size() > 200) {
+                // 转换为列表并按时间排序
+                List<Map.Entry<Entity, CacheEntry>> entries = new ArrayList<>(protectionCache.entrySet());
+                entries.sort((e1, e2) -> Long.compare(e1.getValue().timestamp, e2.getValue().timestamp));
+
+                // 保留最新的100个条目
+                int toRemove = entries.size() - 100;
+                for (int i = 0; i < toRemove; i++) {
+                    protectionCache.remove(entries.get(i).getKey());
+                }
+            }
+        } catch (Exception e) {
+            getLogger().warning("Error during Folia cache cleanup: " + e.getMessage());
+            // 发生错误时清空缓存
+            protectionCache.clear();
+        }
     }
 
     private void cleanupStatistics() {
