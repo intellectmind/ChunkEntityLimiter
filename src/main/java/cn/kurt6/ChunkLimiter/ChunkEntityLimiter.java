@@ -10,6 +10,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
@@ -871,124 +872,122 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private void processPlayerChunkGroup(Player player, Set<Chunk> globalProcessed) {
         if (chunkCheckRadius <= 0) return;
 
-        try {
-            // 验证玩家状态
-            if (!player.isOnline()) {
-                getLogger().fine("Player " + player.getName() + " went offline during processing");
+        // 在调度前捕获玩家状态
+        final Player finalPlayer = player;
+        if (!finalPlayer.isOnline()) {
+            getLogger().fine("Player " + finalPlayer.getName() + " went offline during processing");
+            return;
+        }
+
+        final Location loc = finalPlayer.getLocation();
+        if (loc == null || loc.getWorld() == null) {
+            getLogger().warning("Player " + finalPlayer.getName() + " has null location or world");
+            return;
+        }
+
+        // 获取插件实例
+        final Plugin plugin = Bukkit.getPluginManager().getPlugin("ChunkEntityLimiter");
+        if (plugin == null || !plugin.isEnabled()) return;
+
+        // 使用区域调度器
+        Bukkit.getRegionScheduler().run(plugin, loc, task -> {
+            // 再次验证玩家状态
+            if (!finalPlayer.isOnline()) {
+                getLogger().fine("Player " + finalPlayer.getName() + " went offline during region scheduling");
                 return;
             }
 
-            Location loc = player.getLocation();
-            if (loc == null || loc.getWorld() == null) {
-                getLogger().warning("Player " + player.getName() + " has null location or world");
-                return;
-            }
-
-            World world = loc.getWorld();
-            Chunk center;
+            // 使用局部变量保存半径（避免并发修改）
+            final int currentRadius = chunkCheckRadius;
+            if (currentRadius <= 0) return;
 
             try {
-                center = loc.getChunk();
+                Chunk center = loc.getChunk();
                 if (center == null || !center.isLoaded()) {
-                    getLogger().warning("Cannot get valid chunk for player " + player.getName());
+                    getLogger().warning("Cannot get valid chunk for player " + finalPlayer.getName());
                     return;
                 }
-            } catch (Exception e) {
-                getLogger().warning("Failed to get chunk for player " + player.getName() + ": " + e.getMessage());
-                return;
-            }
 
-            List<Chunk> chunkGroup = new ArrayList<>();
-            int skippedChunks = 0;
-            int duplicateChunks = 0;
-            int invalidChunks = 0;
+                World world = loc.getWorld();
+                List<Chunk> chunkGroup = new ArrayList<>();
+                int skippedChunks = 0;
+                int duplicateChunks = 0;
+                int invalidChunks = 0;
 
-            // 区块收集逻辑，边界检查
-            int centerX = center.getX();
-            int centerZ = center.getZ();
+                int centerX = center.getX();
+                int centerZ = center.getZ();
 
-            for (int x = -chunkCheckRadius; x <= chunkCheckRadius; x++) {
-                for (int z = -chunkCheckRadius; z <= chunkCheckRadius; z++) {
-                    try {
-                        int chunkX = centerX + x;
-                        int chunkZ = centerZ + z;
-
-                        // 严格的边界检查 - Minecraft 世界边界
-                        if (Math.abs(chunkX) > 1875000 || Math.abs(chunkZ) > 1875000) {
-                            skippedChunks++;
-                            continue;
-                        }
-
-                        // 检查区块是否存在且已加载
-                        if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                            skippedChunks++;
-                            continue;
-                        }
-
-                        Chunk chunk;
+                for (int x = -currentRadius; x <= currentRadius; x++) {
+                    for (int z = -currentRadius; z <= currentRadius; z++) {
                         try {
-                            chunk = world.getChunkAt(chunkX, chunkZ);
-                        } catch (Exception e) {
-                            getLogger().fine(String.format("Failed to get chunk at %d,%d: %s",
-                                    chunkX, chunkZ, e.getMessage()));
-                            invalidChunks++;
-                            continue;
-                        }
+                            int chunkX = centerX + x;
+                            int chunkZ = centerZ + z;
 
-                        if (chunk == null) {
-                            invalidChunks++;
-                            continue;
-                        }
-
-                        // 三重检查区块状态
-                        if (!chunk.isLoaded()) {
-                            skippedChunks++;
-                            continue;
-                        }
-
-                        // 验证区块坐标是否正确
-                        if (chunk.getX() != chunkX || chunk.getZ() != chunkZ) {
-                            getLogger().warning(String.format("Chunk coordinate mismatch: expected (%d,%d), got (%d,%d)",
-                                    chunkX, chunkZ, chunk.getX(), chunk.getZ()));
-                            invalidChunks++;
-                            continue;
-                        }
-
-                        // 线程安全的去重处理
-                        synchronized (globalProcessed) {
-                            if (globalProcessed.add(chunk)) {
-                                chunkGroup.add(chunk);
-                            } else {
-                                duplicateChunks++;
+                            // 边界检查
+                            if (Math.abs(chunkX) > 1875000 || Math.abs(chunkZ) > 1875000) {
+                                skippedChunks++;
+                                continue;
                             }
+
+                            // 使用安全的区块获取方式（不自动生成新区块）
+                            Chunk chunk = world.getChunkAt(chunkX, chunkZ, false);
+
+                            // 检查区块是否有效
+                            if (chunk == null) {
+                                skippedChunks++; // 区块未生成
+                                continue;
+                            }
+
+                            // 检查区块是否已加载
+                            if (!chunk.isLoaded()) {
+                                skippedChunks++;
+                                continue;
+                            }
+
+                            // 验证区块坐标是否正确
+                            if (chunk.getX() != chunkX || chunk.getZ() != chunkZ) {
+                                getLogger().warning(String.format("Chunk coordinate mismatch: expected (%d,%d), got (%d,%d)",
+                                        chunkX, chunkZ, chunk.getX(), chunk.getZ()));
+                                invalidChunks++;
+                                continue;
+                            }
+
+                            // 线程安全的去重处理
+                            synchronized (globalProcessed) {
+                                if (globalProcessed.add(chunk)) {
+                                    chunkGroup.add(chunk);
+                                } else {
+                                    duplicateChunks++;
+                                }
+                            }
+                        } catch (Exception e) {
+                            getLogger().warning(String.format("Error processing chunk offset (%d,%d) for player %s: %s",
+                                    x, z, finalPlayer.getName(), e.getMessage()));
+                            invalidChunks++;
                         }
-                    } catch (Exception e) {
-                        getLogger().warning(String.format("Error processing chunk offset (%d,%d) for player %s: %s",
-                                x, z, player.getName(), e.getMessage()));
-                        invalidChunks++;
                     }
                 }
-            }
 
-            getLogger().fine(String.format("Player %s chunk group: %d collected, %d skipped, %d duplicates, %d invalid",
-                    player.getName(), chunkGroup.size(), skippedChunks, duplicateChunks, invalidChunks));
+                getLogger().fine(String.format("Player %s chunk group: %d collected, %d skipped, %d duplicates, %d invalid",
+                        finalPlayer.getName(), chunkGroup.size(), skippedChunks, duplicateChunks, invalidChunks));
 
-            if (!chunkGroup.isEmpty()) {
-                try {
-                    processChunkGroupWithWarning(chunkGroup);
-                    getLogger().fine(String.format("Processed chunk group for player %s with %d chunks",
-                            player.getName(), chunkGroup.size()));
-                } catch (Exception e) {
-                    getLogger().log(Level.WARNING, "Error processing chunk group for player " + player.getName(), e);
+                if (!chunkGroup.isEmpty()) {
+                    try {
+                        processChunkGroupWithWarning(chunkGroup);
+                        getLogger().fine(String.format("Processed chunk group for player %s with %d chunks",
+                                finalPlayer.getName(), chunkGroup.size()));
+                    } catch (Exception e) {
+                        getLogger().log(Level.WARNING, "Error processing chunk group for player " + finalPlayer.getName(), e);
+                    }
+                } else {
+                    getLogger().fine("No new chunks to process for player " + finalPlayer.getName());
                 }
-            } else {
-                getLogger().fine("No new chunks to process for player " + player.getName());
-            }
 
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Error processing chunk group for player: " +
-                    (player != null ? player.getName() : "null"), e);
-        }
+            } catch (Exception e) {
+                getLogger().log(Level.WARNING, "Error in region task for player: " +
+                        finalPlayer.getName(), e);
+            }
+        });
     }
 
     private void processChunkGroupWithWarning(List<Chunk> chunks) {
