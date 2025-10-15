@@ -10,6 +10,8 @@
 
 #### You can modify the default configuration in the ChunkEntityLimiter folder under the plugins folder.
 
+#### Logic for cleanup: Remove in the order of generation time, with the earliest generated ones being removed first. 
+
 ----------------------------------------------------------------------------------------------------------
 
 #### Provide the following 4 commands:
