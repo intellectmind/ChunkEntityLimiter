@@ -16,7 +16,7 @@ entity-limits:
   # ------------zh------------
   # 是否包含检查玩家周围的区块，0表示禁用
   # 例如: 当chunk-check-radius: 1, default-limit: 100时, 则玩家周围半径1内的所有区块(3x3)的总限制也为100, 单区块限制也同时生效
-  chunk-check-radius: 1
+  chunk-check-radius: 2
   # ------------en------------
   # Multiplier for entity limits in chunks around the player.
   # Example: If chunk_entity_multiplier: 1.5, chunk-check-radius: 1, and default-limit: 100, the entity limit for all chunks (3x3) within radius 1 becomes 100 * 1.5.
@@ -85,6 +85,9 @@ settings:
   # Set to true to enable performance monitoring
   # 设为 true 启用性能监控
   performance-monitoring: false
+  # Set to true to enable debug mode (verbose logging)
+  # 设为 true 启用调试模式（详细日志）
+  debug-mode: false
   # Language option (en/zh)
   # 语言选项（en/zh）
   language: en
