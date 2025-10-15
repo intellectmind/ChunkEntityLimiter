@@ -36,7 +36,7 @@ entity-limits:
   check-interval-ticks: 200  # This means the check occurs every 10 seconds
   # Whether to check chunks around the player. 0 means disabled.
   # Example: If chunk-check-radius: 1 and default-limit: 100, the total limit for all chunks (3x3) within radius 1 around the player is also 100. Single-chunk limits still apply.
-  chunk-check-radius: 1
+  chunk-check-radius: 2
   # Multiplier for entity limits in chunks around the player.
   # Example: If chunk_entity_multiplier: 1.5, chunk-check-radius: 1, and default-limit: 100, the entity limit for all chunks (3x3) within radius 1 becomes 100 * 1.5.
   chunk_entity_multiplier: 1.5
@@ -82,6 +82,8 @@ settings:
   notification-radius: 128.0
   # Set to true to enable performance monitoring
   performance-monitoring: false
+  # Set to true to enable debug mode (verbose logging)
+  debug-mode: false
   # Language option (en/zh)
   language: en
 ```
