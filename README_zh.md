@@ -36,7 +36,7 @@ entity-limits:
   check-interval-ticks: 200  # 即每10秒检查一次
   # 是否包含检查玩家周围的区块，0表示禁用
   # 例如: 当chunk-check-radius: 1, default-limit: 100时, 则玩家周围半径1内的所有区块(3x3)的总限制也为100, 单区块限制也同时生效
-  chunk-check-radius: 1
+  chunk-check-radius: 2
   # 玩家周围的区块实体限制倍数
   # 例如: 当chunk_entity_multiplier: 1.5, chunk-check-radius: 1, default-limit: 100时, 则玩家周围半径1内的所有区块(3x3)的实体限制为100*1.5
   chunk_entity_multiplier: 1.5
@@ -77,6 +77,7 @@ settings:
   notify-cooldown: 10 # 预警冷却时间，单位秒
   notification-radius: 128.0 # 玩家通知范围
   performance-monitoring: false # 设为 true 启用性能监控
+  debug-mode: false  # 设为 true 启用调试模式（详细日志）
   language: zh  # 语言选项（en/zh）
 ```
 
