@@ -11,6 +11,7 @@ import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -146,8 +147,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private String msgItemStats;
     private String msgCleanupReport;
     private String msgPreOverload;
-    private String msgNotificationEnabled;
-    private String msgNotificationDisabled;
+    private String msgNotificationAll;
+    private String msgNotificationStaff;
+    private String msgNotificationNone;
+    private String msgUnknownNotificationStatus;
     private String msgPerfPhase1;
     private String msgPerfPhase2;
     private String msgPerfTotal;
@@ -173,7 +176,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private String msgGroupPreOverload;
 
     // 运行时配置
-    private volatile boolean enableNotifications;
+    private volatile String notifications;
     private int notifyThreshold;
     private double thresholdRatio;
     private int notifyCooldown;
@@ -217,8 +220,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         en.put("item-stats", "&6[Items]");
         en.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
         en.put("cleanup-report", "&6[Single Chunk Cleanup Report] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  &cMobs: %current_mobs% &7| &bItems: %current_items%");
-        en.put("notification-enabled", "&aEntity notifications enabled");
-        en.put("notification-disabled", "&cEntity notifications disabled");
+        en.put("notification-all", "&aEntity notifications will send to all players");
+        en.put("notification-staff", "&6Entity notifications will send to staff");
+        en.put("notification-none", "&cEntity notifications will now be muted");
+        en.put("unknown-notification-status", "&cUnknown notification status! Acceptable values (all, staff, none)");
         en.put("total-stats", "&6Total: &c%total_mobs% mobs &6| &b%total_items% items");
         en.put("group-cleanup-report", "&6[Batch Chunk Cleanup Report] Cleaned %mobs% mobs & %items% items in %world% (X:%x%, Z:%z%)");
         en.put("group-pre-overload", "&cWarning! %type% in chunk group %world% (Center: %centerX%, %centerZ%) nearing limit: %current%/%max%");
@@ -250,8 +255,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         zh.put("item-stats", "&6[物品统计]");
         zh.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
         zh.put("cleanup-report", "&6[单区块清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs% &7| &b物品: %current_items%");
-        zh.put("notification-enabled", "&a实体清理通知已启用");
-        zh.put("notification-disabled", "&c实体清理通知已禁用");
+        en.put("notification-all", "&a实体通知将发送给所有玩家");
+        en.put("notification-staff", "&6实体通知将发送给员工");
+        en.put("notification-none", "&c实体通知现已静音。");
+        en.put("unknown-notification-status", "&c通知状态未知！可接受的值（全部、员工、无）");
         zh.put("total-stats", "&6总计: &c%total_mobs% 生物 &6| &b%total_items% 物品");
         zh.put("group-cleanup-report", "&6[组合区块清理报告] 在 %world% (X:%x%, Z:%z%) 清理了 %mobs% 生物和 %items% 物品");
         zh.put("group-pre-overload", "&c警告！区块组合 %world% (中心: %centerX%, %centerZ%) 的 %type% 数量接近上限：%current%/%max%");
@@ -366,21 +373,35 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
 
         ConfigurationSection settings = config.getConfigurationSection("settings");
-        enableNotifications = settings.getBoolean("enable-notifications", true);
-        notifyThreshold = Math.min(100, Math.max(0, settings.getInt("notify-threshold", 90)));
-        thresholdRatio = notifyThreshold / 100.0;
-        notifyCooldown = settings.getInt("notify-cooldown", 10);
-        notificationRadius = Math.max(0, Math.min(1000, settings.getDouble("notification-radius", 128.0)));
-        performanceMonitoring = settings.getBoolean("performance-monitoring", false);
-        debugMode = settings.getBoolean("debug-mode", false);
+        if (settings != null) {
+            notifications = settings.getString("send-notifications", "all");
+            if (!Arrays.asList("all", "staff", "none").contains(notifications.toLowerCase())) {
+                notifications = "all";
+            }
 
-        ConfigurationSection protection = config.getConfigurationSection("protection");
-        if (protection != null) {
-            protectNamedEntities = protection.getBoolean("protect-named-entities", true);
-            protectLeashedEntities = protection.getBoolean("protect-leashed-entities", true);
-            protectTamedAnimals = protection.getBoolean("protect-tamed-animals", true);
-            protectEquippedEntities = protection.getBoolean("protect-equipped-entities", true);
-            protectBossEntities = protection.getBoolean("protect-boss-entities", true);
+            notifyThreshold = Math.min(100, Math.max(0, settings.getInt("notify-threshold", 90)));
+            thresholdRatio = notifyThreshold / 100.0;
+            notifyCooldown = settings.getInt("notify-cooldown", 10);
+            notificationRadius = Math.max(0, Math.min(1000, settings.getDouble("notification-radius", 128.0)));
+            performanceMonitoring = settings.getBoolean("performance-monitoring", false);
+            debugMode = settings.getBoolean("debug-mode", false);
+
+            ConfigurationSection protection = config.getConfigurationSection("protection");
+            if (protection != null) {
+                protectNamedEntities = protection.getBoolean("protect-named-entities", true);
+                protectLeashedEntities = protection.getBoolean("protect-leashed-entities", true);
+                protectTamedAnimals = protection.getBoolean("protect-tamed-animals", true);
+                protectEquippedEntities = protection.getBoolean("protect-equipped-entities", true);
+                protectBossEntities = protection.getBoolean("protect-boss-entities", true);
+            }
+        } else {
+            notifications = "all";
+            notifyThreshold = 90;
+            thresholdRatio = 0.9;
+            notifyCooldown = 10;
+            notificationRadius = 128.0;
+            performanceMonitoring = false;
+            debugMode = false;
         }
     }
 
@@ -401,8 +422,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         msgItemStats = parseMessage(messages.getOrDefault("item-stats", ""));
         msgCleanupReport = parseMessage(messages.getOrDefault("cleanup-report", ""));
         msgPreOverload = parseMessage(messages.getOrDefault("pre-overload", ""));
-        msgNotificationEnabled = parseMessage(messages.getOrDefault("notification-enabled", ""));
-        msgNotificationDisabled = parseMessage(messages.getOrDefault("notification-disabled", ""));
+        msgNotificationAll = parseMessage(messages.getOrDefault("notification-all", ""));
+        msgNotificationStaff = parseMessage(messages.getOrDefault("notification-staff", ""));
+        msgNotificationNone = parseMessage(messages.getOrDefault("notification-none", ""));
+        msgUnknownNotificationStatus = parseMessage(messages.getOrDefault("unknown-notification-status", ""));
         msgGroupCleanupReport = parseMessage(messages.getOrDefault("group-cleanup-report", ""));
         msgGroupPreOverload = parseMessage(messages.getOrDefault("group-pre-overload", ""));
         msgPerfPhase1 = parseMessage(messages.getOrDefault("perf-phase1", ""));
@@ -1233,7 +1256,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
      * 发送消息给附近玩家
      */
     private void sendMessageToNearbyPlayers(Location center, String message, double defaultRadius) {
-        if (!enableNotifications) return;
+        if (notifications.equalsIgnoreCase("none")) return;
         if (center.getWorld() == null) return;
 
         double radius = notificationRadius > 0 ? notificationRadius : defaultRadius;
@@ -1245,6 +1268,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     double dz = pLoc.getZ() - center.getZ();
                     return Math.sqrt(dx * dx + dz * dz) <= radius;
                 })
+                .filter(p -> !notifications.equalsIgnoreCase("staff") || p.hasPermission("chunklimiter.notify"))
                 .forEach(p -> p.sendMessage(message));
     }
 
@@ -1810,22 +1834,13 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
      * 发送清理报告
      */
     private void sendCleanupReport(Chunk chunk, int removedMobs, int removedItems) {
+        if (notifications.equalsIgnoreCase("none")) return;
         if (removedMobs + removedItems == 0) return;
 
         World world = chunk.getWorld();
-        if (world == null) {
-            getLogger().warning("Cannot send cleanup report for chunk with null world");
-            return;
-        }
-
-        int currentMobs = 0;
-        int currentItems = 0;
-
-        if (enableNotifications) {
-            ChunkStats stats = collectChunkStats(chunk);
-            currentMobs = stats.mobCounts.values().stream().mapToInt(Integer::intValue).sum();
-            currentItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
-        }
+        ChunkStats stats = collectChunkStats(chunk);
+        int currentMobs = stats.mobCounts.values().stream().mapToInt(Integer::intValue).sum();
+        int currentItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
 
         Map<String, String> params = new HashMap<>();
         params.put("mobs", String.valueOf(removedMobs));
@@ -1836,19 +1851,17 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         params.put("current_mobs", String.valueOf(currentMobs));
         params.put("current_items", String.valueOf(currentItems));
 
-        if (enableNotifications) {
-            String message = replacePlaceholders(msgCleanupReport, params);
-            getLogger().info(ChatColor.stripColor(message));
+        String message = replacePlaceholders(msgCleanupReport, params);
+        getLogger().info(ChatColor.stripColor(message));
 
-            Location chunkCenter = new Location(
-                    world,
-                    chunk.getX() * 16 + 8,
-                    world.getHighestBlockYAt(chunk.getX() * 16 + 8, chunk.getZ() * 16 + 8),
-                    chunk.getZ() * 16 + 8
-            );
+        Location chunkCenter = new Location(
+                world,
+                chunk.getX() * 16 + 8,
+                world.getHighestBlockYAt(chunk.getX() * 16 + 8, chunk.getZ() * 16 + 8),
+                chunk.getZ() * 16 + 8
+        );
 
-            sendMessageToNearbyPlayers(chunkCenter, message, 128);
-        }
+        sendMessageToNearbyPlayers(chunkCenter, message, 128);
     }
 
     /**
@@ -2399,14 +2412,14 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         String[] helpMessages = currentLang.equals("zh") ?
                 new String[] {
                         "&a/chunklimiter reload &7- 重载配置",
-                        "&a/chunklimiter notify [on|off] &7- 切换通知状态",
+                        "&a/chunklimiter notify [all|staff|none] &7- 切换通知状态",
                         "&a/chunklimiter stats &7- 查看当前区块统计",
                         "&a/chunklimiter performance &7- 查看性能监控",
                         "&a/chunklimiter performance reset &7- 重置性能监控"
                 } :
                 new String[] {
                         "&a/chunklimiter reload &7- Reload config",
-                        "&a/chunklimiter notify [on|off] &7- Toggle notifications",
+                        "&a/chunklimiter notify [all|staff|none] &7- Toggle notifications",
                         "&a/chunklimiter stats &7- Show chunk stats",
                         "&a/chunklimiter performance &7- View performance monitoring",
                         "&a/chunklimiter performance reset &7- Reset performance monitoring"
@@ -2787,18 +2800,23 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             return;
         }
 
+        String[] options = {"all", "staff", "none"};
         if (args.length == 1) {
-            enableNotifications = !enableNotifications;
-            player.sendMessage(enableNotifications ? msgNotificationEnabled : msgNotificationDisabled);
+            synchronized (this) {
+                notifications = options[(Arrays.asList(options).indexOf(notifications) + 1) % options.length];
+            }
         } else {
-            boolean newState = args[1].equalsIgnoreCase("on");
-            enableNotifications = newState;
-            player.sendMessage(newState ? msgNotificationEnabled : msgNotificationDisabled);
+            if (!Arrays.asList(options).contains(args[1].toLowerCase())) {
+                player.sendMessage(msgUnknownNotificationStatus);
+                return;
+            }
+            notifications = args[1].toLowerCase();
         }
+        player.sendMessage(notifications.equalsIgnoreCase("all") ? msgNotificationAll : notifications.equalsIgnoreCase("staff") ? msgNotificationStaff : msgNotificationNone);
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
+    public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command cmd, @NotNull String alias, String[] args) {
         if (args.length == 1) {
             List<String> completions = Arrays.asList("reload", "stats", "notify", "help", "performance");
             return completions.stream()
@@ -2809,9 +2827,9 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
                 case "notify":
-                    return Arrays.asList("on", "off");
+                    return Arrays.asList("all", "staff", "none");
                 case "performance":
-                    return Arrays.asList("reset");
+                    return Collections.singletonList("reset");
             }
         }
 
