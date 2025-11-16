@@ -12,7 +12,7 @@ commands:
     usage: |
       /chunklimit reload - 重载配置
       /chunklimit stats - 查看区块统计及限制
-      /chunklimit notify [on|off] - 切换通知
+      /chunklimit notify [all|staff|none] - 切换通知
       /chunklimiter performance - 查看性能监控
       /chunklimiter performance reset - 重置性能监控
 

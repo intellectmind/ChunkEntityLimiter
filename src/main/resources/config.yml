@@ -70,9 +70,10 @@ protection:
 # Notification settings
 # 通知设置
 settings:
-  # Controls whether cleaning reports and limit warnings are sent to the console and online player. Default: true
-  # 控制是否发送清理报告和超限警告到控制台和在线玩家，默认：true
-  enable-notifications: true
+  # Controls whether cleaning reports and limit warnings are sent to the console and online player. Default: all
+  # 控制是否发送清理报告和超限警告到控制台和在线玩家，默认：all
+  # Options: all, staff, none
+  send-notifications: all
   # Warning notification percentage (0-100). 0 means no warning, only notify players in the current chunk
   # 预警通知百分比（0-100），0表示禁用预警，仅通知当前区块的玩家
   notify-threshold: 90
