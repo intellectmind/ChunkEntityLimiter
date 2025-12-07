@@ -37,7 +37,7 @@ This plugin optimizes server performance by intelligently limiting entity and it
 | :--- | :--- | :--- |
 | **`/chunklimit reload`** | Reloads the configuration file. | `chunklimiter.reload` (default: op) |
 | **`/chunklimit stats`** | Displays detailed entity statistics for the current chunk and surrounding radius. | `chunklimiter.stats` (default: true) |
-| **`/chunklimit notify [type] [scope]`** | **New in v1.9+**<br>Set notification preferences.<br>• **Type:** `report` (Cleanup result) or `warning` (Near limit)<br>• **Scope:** `none` (Off), `op` (Admins only), `all` (Everyone nearby)<br>_Example:_ `/cl notify report op` | `chunklimiter.notify` (default: op) |
+| **`/chunklimit notify [type] [scope]`** | Set notification preferences.<br>• **Type:** `report` (Cleanup result) or `warning` (Near limit)<br>• **Scope:** `none` (Off), `op` (Admins only), `all` (Everyone nearby)<br>_Example:_ `/cl notify report op` | `chunklimiter.notify` (default: op) |
 | **`/chunklimit performance [reset]`** | View performance metrics (execution time for classification, cleanup, etc.). | `chunklimiter.performance` (default: op) |
 
 ------------------------------------------------------------------------------------------------------
