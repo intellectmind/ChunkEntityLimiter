@@ -23,17 +23,12 @@ import java.util.stream.Collectors;
 
 public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
-    // 性能监控
     private final Map<String, PerformanceStats> performanceStats = new ConcurrentHashMap<>();
     private boolean performanceMonitoring = false;
-    private final Map<String, Long> lastPerformanceValues = new ConcurrentHashMap<>();
-
-    // 统计缓存
     private final Map<String, CachedChunkStats> chunkStatsCache = new ConcurrentHashMap<>();
 
-    /**
-     * 缓存的区块统计
-     */
+    private enum NotifyScope { NONE, OP, ALL }
+
     private static class CachedChunkStats {
         final ChunkStats stats;
         final long timestamp;
@@ -46,35 +41,51 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
 
         boolean isValid(int currentCount) {
-            return System.currentTimeMillis() - timestamp < 5000
-                    && currentCount == entityCount;
+            return System.currentTimeMillis() - timestamp < 5000 && currentCount == entityCount;
         }
     }
 
-    /**
-     * 记录性能指标
-     */
+    private static class EntityTimeWrapper implements Comparable<EntityTimeWrapper> {
+        final Entity entity;
+        final long spawnTime;
+        final boolean isProtected;
+        final int weight;
+
+        EntityTimeWrapper(Entity entity, NamespacedKey key, boolean isProtected, int weight) {
+            this.entity = entity;
+            this.spawnTime = entity.getPersistentDataContainer()
+                    .getOrDefault(key, PersistentDataType.LONG, System.currentTimeMillis());
+            this.isProtected = isProtected;
+            this.weight = weight;
+        }
+
+        @Override
+        public int compareTo(EntityTimeWrapper other) {
+            if (this.isProtected != other.isProtected) {
+                return this.isProtected ? 1 : -1;
+            }
+            return Long.compare(this.spawnTime, other.spawnTime);
+        }
+    }
+
     private void recordPerformance(String operation, long duration) {
         if (!performanceMonitoring) return;
-
         try {
-            performanceStats.computeIfAbsent(operation, k -> new PerformanceStats())
-                    .addValue(duration);
-        } catch (Exception e) {
-            getLogger().fine("Error recording performance for " + operation + ": " + e.getMessage());
+            performanceStats.computeIfAbsent(operation, k -> new PerformanceStats()).addValue(duration);
+        } catch (Exception ignored) {}
+    }
+
+    private void debug(String message) {
+        if (debugMode) {
+            getLogger().info("[DEBUG] " + message);
         }
     }
 
-    /**
-     * 性能统计数据类
-     */
     private static class PerformanceStats {
         private volatile long totalTime = 0;
         private volatile long count = 0;
         private volatile long lastValue = 0;
         private final Object lock = new Object();
-        private volatile long minValue = Long.MAX_VALUE;
-        private volatile long maxValue = Long.MIN_VALUE;
         private final int maxSamples = 1000;
         private final long[] samples = new long[maxSamples];
         private volatile int currentIndex = 0;
@@ -83,19 +94,11 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         public void addValue(long value) {
             synchronized (lock) {
                 lastValue = value;
-                minValue = Math.min(minValue, value);
-                maxValue = Math.max(maxValue, value);
-
-                if (isFull) {
-                    totalTime -= samples[currentIndex];
-                } else {
+                if (isFull) totalTime -= samples[currentIndex];
+                else {
                     count++;
-                    if (count >= maxSamples) {
-                        isFull = true;
-                        count = maxSamples;
-                    }
+                    if (count >= maxSamples) { isFull = true; count = maxSamples; }
                 }
-
                 samples[currentIndex] = value;
                 totalTime += value;
                 currentIndex = (currentIndex + 1) % maxSamples;
@@ -103,25 +106,10 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
 
         public double getAverage() {
-            synchronized (lock) {
-                return count > 0 ? (double) totalTime / count : 0;
-            }
-        }
-
-        public long getLastValue() {
-            synchronized (lock) {
-                return lastValue;
-            }
-        }
-
-        public long getCount() {
-            synchronized (lock) {
-                return count;
-            }
+            synchronized (lock) { return count > 0 ? (double) totalTime / count : 0; }
         }
     }
 
-    // 配置参数
     private int defaultLimit = 100;
     private int itemLimit = 300;
     private int checkInterval = 600;
@@ -134,62 +122,42 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private volatile double notificationRadius = 128.0;
     private volatile boolean debugMode = false;
 
-    // 消息配置
-    private String msgReloadSuccess;
-    private String msgNoPermission;
-    private String msgPlayerOnly;
-    private String msgChunkHeader;
-    private String msgMobStats;
-    private String msgMobStatsLine;
-    private String msgItemStatsLine;
-    private String msgTotalStats;
-    private String msgItemStats;
-    private String msgCleanupReport;
-    private String msgPreOverload;
-    private String msgNotificationEnabled;
-    private String msgNotificationDisabled;
-    private String msgPerfPhase1;
-    private String msgPerfPhase2;
-    private String msgPerfTotal;
-    private String msgPerfClassify;
-    private String msgPerfCleanup;
-    private String msgPerfHeader;
-    private String msgPerfNoData;
-    private String msgPerfDisabled;
-    private String msgPerfReset;
+    private String msgReloadSuccess, msgNoPermission, msgPlayerOnly, msgChunkHeader;
+    private String msgMobStats, msgMobStatsLine, msgItemStatsLine, msgTotalStats, msgItemStats;
+    private String msgCleanupReport, msgPreOverload;
+    private String msgScopeSet, msgNotifyStatus;
+    private String msgPerfPhase1, msgPerfPhase2, msgPerfTotal, msgPerfClassify, msgPerfCleanup;
+    private String msgPerfHeader, msgPerfNoData, msgPerfDisabled, msgPerfReset;
     private boolean protectNamedEntities = true;
     private boolean protectLeashedEntities = true;
     private boolean protectTamedAnimals = true;
-    private String msgProtectedStats;
-    private String msgProtectedNamed;
-    private String msgProtectedLeashed;
-    private String msgProtectedTamed;
-    private String msgProtectedTotal;
+    private String msgProtectedStats, msgProtectedNamed, msgProtectedLeashed, msgProtectedTamed, msgProtectedTotal;
     private boolean protectEquippedEntities = true;
     private boolean protectBossEntities = true;
-    private String msgProtectedEquipped;
-    private String msgProtectedBoss;
-    private String msgGroupCleanupReport;
-    private String msgGroupPreOverload;
+    private String msgProtectedEquipped, msgProtectedBoss, msgGroupCleanupReport, msgGroupPreOverload;
 
-    // 运行时配置
-    private volatile boolean enableNotifications;
+    private volatile NotifyScope cleanupReportScope = NotifyScope.ALL;
+    private volatile NotifyScope overloadWarningScope = NotifyScope.OP;
+    private volatile boolean opGlobalCleanupReport = false;
+    private volatile boolean opGlobalOverloadWarning = false;
+    private volatile boolean consoleCleanupReport = true;
+
+    private volatile boolean cleanProtectedIfOverLimit = false;
+    private volatile boolean countItemStackAmount = false;
+    private volatile boolean cleanAllLoadedChunks = true;
+
     private int notifyThreshold;
     private double thresholdRatio;
     private int notifyCooldown;
     private final Map<String, Long> lastNotifyTimes = new ConcurrentHashMap<>();
     private final NamespacedKey SPAWN_TIME_KEY = new NamespacedKey(this, "spawnTime");
 
-    // 性能优化
+    private final Map<Integer, CacheEntry> protectionCache = new ConcurrentHashMap<>();
     private final Pattern PLACEHOLDER_PATTERN = Pattern.compile("%(\\w+)%");
     private final Map<EntityType, Long> removalStats = new ConcurrentHashMap<>();
 
-    // Folia 检测
     private static final boolean IS_FOLIA = checkFolia();
 
-    /**
-     * 检测是否运行在 Folia 环境
-     */
     private static boolean checkFolia() {
         try {
             Class.forName("io.papermc.paper.threadedregions.RegionizedServer");
@@ -202,83 +170,8 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
     private final Map<String, Map<String, String>> LANGUAGES = new HashMap<>();
     private String currentLang = "en";
 
-    /**
-     * 初始化语言数据
-     */
-    private void initLanguages() {
-        Map<String, String> en = new HashMap<>();
-        en.put("reload-success", "&aConfiguration reloaded!");
-        en.put("no-permission", "&cYou don't have permission!");
-        en.put("player-only", "&cThis command can only be used in-game");
-        en.put("chunk-info-header", "&6==== Current Chunk Entities &7(World: %world%) (%x%, %z%) &6====");
-        en.put("mob-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        en.put("pre-overload", "&cWarning! %type% in chunk %world% (%chunkX%, %chunkZ%) nearing limit: %current%/%max%");
-        en.put("mob-stats", "&6[Mobs]");
-        en.put("item-stats", "&6[Items]");
-        en.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        en.put("cleanup-report", "&6[Single Chunk Cleanup Report] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  &cMobs: %current_mobs% &7| &bItems: %current_items%");
-        en.put("notification-enabled", "&aEntity notifications enabled");
-        en.put("notification-disabled", "&cEntity notifications disabled");
-        en.put("total-stats", "&6Total: &c%total_mobs% mobs &6| &b%total_items% items");
-        en.put("group-cleanup-report", "&6[Batch Chunk Cleanup Report] Cleaned %mobs% mobs & %items% items in %world% (X:%x%, Z:%z%)");
-        en.put("group-pre-overload", "&cWarning! %type% in chunk group %world% (Center: %centerX%, %centerZ%) nearing limit: %current%/%max%");
-        en.put("perf-phase1", "Phase1-SingleChunks");
-        en.put("perf-phase2", "Phase2-GroupChunks");
-        en.put("perf-total", "Total-Cleanup");
-        en.put("perf-classify", "Entity-Classification");
-        en.put("perf-cleanup", "Cleanup-Enforcement");
-        en.put("perf-header", "&6=== Performance Stats ===");
-        en.put("perf-no-data", "&cNo performance data available");
-        en.put("perf-disabled", "&cPerformance monitoring is disabled! Set performance-monitoring: true in config.yml");
-        en.put("perf-reset", "&aPerformance statistics have been reset");
-        en.put("protected-stats", "&6[Protected Entities]");
-        en.put("protected-named", " &7Named: &a%count%");
-        en.put("protected-leashed", " &7Leashed: &a%count%");
-        en.put("protected-tamed", " &7Tamed: &a%count%");
-        en.put("protected-total", " &7Total Protected: &a%count%");
-        en.put("protected-equipped", " &7Equipped: &a%count%");
-        en.put("protected-boss", " &7Boss: &a%count%");
-
-        Map<String, String> zh = new HashMap<>();
-        zh.put("reload-success", "&a配置已重新加载！");
-        zh.put("no-permission", "&c你没有执行该命令的权限");
-        zh.put("player-only", "&c该命令只能在游戏中执行");
-        zh.put("chunk-info-header", "&6==== 当前区块实体统计 &7(世界: %world%) (%x%, %z%) &6====");
-        zh.put("mob-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        zh.put("pre-overload", "&c警告！区块 %world% (%chunkX%, %chunkZ%) 的 %type% 数量即将超限：%current%/%max%");
-        zh.put("mob-stats", "&6[生物统计]");
-        zh.put("item-stats", "&6[物品统计]");
-        zh.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
-        zh.put("cleanup-report", "&6[单区块清理报告] 在 %world% (%x%,%z%) 清理了 %mobs% 生物和 %items% 物品\n  &c生物: %current_mobs% &7| &b物品: %current_items%");
-        zh.put("notification-enabled", "&a实体清理通知已启用");
-        zh.put("notification-disabled", "&c实体清理通知已禁用");
-        zh.put("total-stats", "&6总计: &c%total_mobs% 生物 &6| &b%total_items% 物品");
-        zh.put("group-cleanup-report", "&6[组合区块清理报告] 在 %world% (X:%x%, Z:%z%) 清理了 %mobs% 生物和 %items% 物品");
-        zh.put("group-pre-overload", "&c警告！区块组合 %world% (中心: %centerX%, %centerZ%) 的 %type% 数量接近上限：%current%/%max%");
-        zh.put("perf-phase1", "阶段1-单区块处理");
-        zh.put("perf-phase2", "阶段2-组合区块处理");
-        zh.put("perf-total", "总清理耗时");
-        zh.put("perf-classify", "实体分类");
-        zh.put("perf-cleanup", "清理执行");
-        zh.put("perf-header", "&6=== 性能统计 ===");
-        zh.put("perf-no-data", "&c暂无性能数据");
-        zh.put("perf-disabled", "&c性能监控未启用！请在config.yml中设置 performance-monitoring: true");
-        zh.put("perf-reset", "&a性能统计已重置");
-        zh.put("protected-stats", "&6[受保护实体]");
-        zh.put("protected-named", " &7命名的: &a%count%");
-        zh.put("protected-leashed", " &7拴住的: &a%count%");
-        zh.put("protected-tamed", " &7驯服的: &a%count%");
-        zh.put("protected-total", " &7受保护总计: &a%count%");
-        zh.put("protected-equipped", " &7有装备的: &a%count%");
-        zh.put("protected-boss", " &7Boss实体: &a%count%");
-
-        LANGUAGES.put("en", en);
-        LANGUAGES.put("zh", zh);
-    }
-
     @Override
     public void onEnable() {
-        // bStats
         int pluginId = 24723;
         Metrics metrics = new Metrics(this, pluginId);
 
@@ -290,83 +183,145 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         setupMaintenanceTask();
 
         getLogger().info("ChunkLimiter v" + getDescription().getVersion() + " enabled!");
-        getLogger().info("Language: " + currentLang.toUpperCase());
-        getLogger().info("Performance monitoring: " + (performanceMonitoring ? "Enabled" : "Disabled"));
-        getLogger().info("Debug mode: " + (debugMode ? "Enabled" : "Disabled"));
-        if (IS_FOLIA) {
-            getLogger().info("Running on Folia - using regional scheduling");
-        }
+        getLogger().info("Env: " + (IS_FOLIA ? "Folia" : "Bukkit/Paper") + " | Debug: " + debugMode);
+    }
+
+    private void initLanguages() {
+        Map<String, String> en = new HashMap<>();
+        en.put("reload-success", "&aConfiguration reloaded!");
+        en.put("no-permission", "&cYou don't have permission!");
+        en.put("player-only", "&cThis command can only be used in-game");
+        en.put("chunk-info-header", "&6==== Current Chunk Entities &7(World: %world%) (%x%, %z%) &6====");
+        en.put("mob-stats-line", " &7%type%: &a%count%&7/&c%limit%");
+        en.put("pre-overload", "&cWarning! %type% in chunk %world% (%chunkX%, %chunkZ%) nearing limit: %current%/%max%");
+        en.put("mob-stats", "&6[Mobs]");
+        en.put("item-stats", "&6[Items]");
+        en.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
+        en.put("cleanup-report", "&6[Cleanup] Cleaned %mobs% mobs & %items% items in %world% (%x%,%z%)\n  &cCurrent: Mobs %current_mobs% | Items %current_items%");
+        en.put("scope-set", "&aNotification scope for %type% set to &e%scope%");
+        en.put("notify-status", "&6Status: &7Reports: &e%report% &7| Warnings: &e%warning%");
+        en.put("total-stats", "&6Total: &c%total_mobs% mobs &6| &b%total_items% items");
+        en.put("group-cleanup-report", "&6[Batch Cleanup] Cleaned %mobs% mobs & %items% items near %world% (X:%x%, Z:%z%)");
+        en.put("group-pre-overload", "&cWarning! %type% near %world% (%centerX%, %centerZ%) limit: %current%/%max%");
+        en.put("perf-phase1", "Phase1-Single");
+        en.put("perf-phase2", "Phase2-Group");
+        en.put("perf-total", "Total-Time");
+        en.put("perf-classify", "Classify");
+        en.put("perf-cleanup", "Cleanup");
+        en.put("perf-header", "&6=== Performance Stats ===");
+        en.put("perf-no-data", "&cNo data");
+        en.put("perf-disabled", "&cPerformance monitoring disabled");
+        en.put("perf-reset", "&aStats reset");
+        en.put("protected-stats", "&6[Protected Entities]");
+        en.put("protected-named", " &7Named: &a%count%");
+        en.put("protected-leashed", " &7Leashed: &a%count%");
+        en.put("protected-tamed", " &7Tamed: &a%count%");
+        en.put("protected-total", " &7Total Protected: &a%count%");
+        en.put("protected-equipped", " &7Equipped: &a%count%");
+        en.put("protected-boss", " &7Boss: &a%count%");
+
+        Map<String, String> zh = new HashMap<>();
+        zh.put("reload-success", "&a配置已重载！");
+        zh.put("no-permission", "&c无权执行");
+        zh.put("player-only", "&c仅限游戏内使用");
+        zh.put("chunk-info-header", "&6==== 区块实体统计 &7(世界: %world%) (%x%, %z%) &6====");
+        zh.put("mob-stats-line", " &7%type%: &a%count%&7/&c%limit%");
+        zh.put("pre-overload", "&c警告！区块 %world% (%chunkX%, %chunkZ%) %type% 即将超限：%current%/%max%");
+        zh.put("mob-stats", "&6[生物统计]");
+        zh.put("item-stats", "&6[物品统计]");
+        zh.put("item-stats-line", " &7%type%: &a%count%&7/&c%limit%");
+        zh.put("cleanup-report", "&6[清理报告] 在 %world% (%x%,%z%) 清理: 生物%mobs% / 物品%items%\n  &c剩余: 生物 %current_mobs% | 物品 %current_items%");
+        zh.put("scope-set", "&a已将 %type% 的通知范围设置为 &e%scope%");
+        zh.put("notify-status", "&6当前状态: &7清理报告: &e%report% &7| 超限警告: &e%warning%");
+        zh.put("total-stats", "&6总计: &c%total_mobs% 生物 &6| &b%total_items% 物品");
+        zh.put("group-cleanup-report", "&6[区域清理] 在 %world% (X:%x%, Z:%z%) 清理: 生物%mobs% / 物品%items%");
+        zh.put("group-pre-overload", "&c警告！区域 %world% (中心: %centerX%, %centerZ%) %type% 接近上限：%current%/%max%");
+        zh.put("perf-phase1", "阶段1-单区块");
+        zh.put("perf-phase2", "阶段2-区块组");
+        zh.put("perf-total", "总耗时");
+        zh.put("perf-classify", "分类耗时");
+        zh.put("perf-cleanup", "清理耗时");
+        zh.put("perf-header", "&6=== 性能统计 ===");
+        zh.put("perf-no-data", "&c暂无数据");
+        zh.put("perf-disabled", "&c监控未启用");
+        zh.put("perf-reset", "&a统计已重置");
+        zh.put("protected-stats", "&6[受保护实体]");
+        zh.put("protected-named", " &7命名: &a%count%");
+        zh.put("protected-leashed", " &7拴绳: &a%count%");
+        zh.put("protected-tamed", " &7驯服: &a%count%");
+        zh.put("protected-total", " &7总保护: &a%count%");
+        zh.put("protected-equipped", " &7装备: &a%count%");
+        zh.put("protected-boss", " &7Boss: &a%count%");
+
+        LANGUAGES.put("en", en);
+        LANGUAGES.put("zh", zh);
     }
 
     private final Object configLock = new Object();
     private volatile boolean reloadInProgress = false;
 
-    /**
-     * 重载配置文件
-     */
     private void reloadConfiguration() {
-        if (reloadInProgress) {
-            getLogger().warning("Configuration reload already in progress");
-            return;
-        }
-
+        if (reloadInProgress) return;
         reloadInProgress = true;
         try {
             synchronized (configLock) {
                 reloadConfig();
-
-                try {
-                    loadSettings();
-                    loadMessages();
-                    getLogger().info("Configuration reloaded successfully");
-                } catch (Exception e) {
-                    getLogger().log(Level.SEVERE, "Failed to reload config, keeping old settings", e);
-                }
+                loadSettings();
+                loadMessages();
             }
+            getLogger().info("Configuration reloaded");
+        } catch (Exception e) {
+            getLogger().severe("Reload failed: " + e.getMessage());
         } finally {
             reloadInProgress = false;
         }
     }
 
-    /**
-     * 加载配置设置
-     */
     private void loadSettings() {
         ConfigurationSection config = getConfig();
-
         currentLang = config.getString("settings.language", "en").toLowerCase();
-        if (!LANGUAGES.containsKey(currentLang)) {
-            currentLang = "en";
-            getLogger().warning("Invalid language setting, defaulting to English");
-        }
+        if (!LANGUAGES.containsKey(currentLang)) currentLang = "en";
 
         ConfigurationSection limits = config.getConfigurationSection("entity-limits");
         defaultLimit = limits.getInt("default-limit", 100);
         itemLimit = limits.getInt("item-limit", 300);
         checkInterval = limits.getInt("check-interval-ticks", 600);
         chunkCheckRadius = Math.max(0, limits.getInt("chunk-check-radius", 0));
-
-        chunkEntityMultiplier = limits.getDouble("chunk_entity_multiplier", 1.0);
-        if (chunkEntityMultiplier <= 0) {
-            chunkEntityMultiplier = 1.0;
-        }
-
-        chunkItemMultiplier = limits.getDouble("chunk_item_multiplier", 1.0);
-        if (chunkItemMultiplier <= 0) {
-            chunkItemMultiplier = 1.0;
-        }
+        chunkEntityMultiplier = Math.max(0.1, limits.getDouble("chunk_entity_multiplier", 1.0));
+        chunkItemMultiplier = Math.max(0.1, limits.getDouble("chunk_item_multiplier", 1.0));
+        countItemStackAmount = limits.getBoolean("count-item-stack-amount", false);
 
         loadEnumSet(ignoredTypes, limits.getStringList("ignored-types"), EntityType.class);
         loadEnumSet(ignoredItems, limits.getStringList("ignored-items"), Material.class);
 
         ConfigurationSection custom = limits.getConfigurationSection("custom-limits");
+        customLimits.clear();
         if (custom != null) {
-            custom.getKeys(false).forEach(k ->
-                    customLimits.put(k.toUpperCase(), custom.getInt(k)));
+            custom.getKeys(false).forEach(k -> customLimits.put(k.toUpperCase(), custom.getInt(k)));
         }
 
         ConfigurationSection settings = config.getConfigurationSection("settings");
-        enableNotifications = settings.getBoolean("enable-notifications", true);
+
+        try {
+            cleanupReportScope = NotifyScope.valueOf(settings.getString("cleanup-report-scope", "ALL").toUpperCase());
+        } catch (IllegalArgumentException e) {
+            cleanupReportScope = NotifyScope.ALL;
+            getLogger().warning("Invalid cleanup-report-scope in config, defaulting to ALL");
+        }
+
+        try {
+            overloadWarningScope = NotifyScope.valueOf(settings.getString("overload-warning-scope", "OP").toUpperCase());
+        } catch (IllegalArgumentException e) {
+            overloadWarningScope = NotifyScope.OP;
+            getLogger().warning("Invalid overload-warning-scope in config, defaulting to OP");
+        }
+
+        opGlobalCleanupReport = settings.getBoolean("op-global-cleanup-report", false);
+        opGlobalOverloadWarning = settings.getBoolean("op-global-overload-warning", false);
+        consoleCleanupReport = settings.getBoolean("console-cleanup-report", true);
+        cleanProtectedIfOverLimit = settings.getBoolean("clean-protected-if-over-limit", false);
+        cleanAllLoadedChunks = settings.getBoolean("clean-all-loaded-chunks", true);
+
         notifyThreshold = Math.min(100, Math.max(0, settings.getInt("notify-threshold", 90)));
         thresholdRatio = notifyThreshold / 100.0;
         notifyCooldown = settings.getInt("notify-cooldown", 10);
@@ -384,69 +339,53 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
     }
 
-    /**
-     * 加载语言消息
-     */
     private void loadMessages() {
         Map<String, String> messages = LANGUAGES.get(currentLang);
-
-        msgReloadSuccess = parseMessage(messages.getOrDefault("reload-success", ""));
-        msgNoPermission = parseMessage(messages.getOrDefault("no-permission", ""));
-        msgPlayerOnly = parseMessage(messages.getOrDefault("player-only", ""));
-        msgChunkHeader = parseMessage(messages.getOrDefault("chunk-info-header", ""));
-        msgMobStats = parseMessage(messages.getOrDefault("mob-stats", ""));
-        msgMobStatsLine = parseMessage(messages.getOrDefault("mob-stats-line", ""));
-        msgItemStatsLine = parseMessage(messages.getOrDefault("item-stats-line", ""));
-        msgTotalStats = parseMessage(messages.getOrDefault("total-stats", ""));
-        msgItemStats = parseMessage(messages.getOrDefault("item-stats", ""));
-        msgCleanupReport = parseMessage(messages.getOrDefault("cleanup-report", ""));
-        msgPreOverload = parseMessage(messages.getOrDefault("pre-overload", ""));
-        msgNotificationEnabled = parseMessage(messages.getOrDefault("notification-enabled", ""));
-        msgNotificationDisabled = parseMessage(messages.getOrDefault("notification-disabled", ""));
-        msgGroupCleanupReport = parseMessage(messages.getOrDefault("group-cleanup-report", ""));
-        msgGroupPreOverload = parseMessage(messages.getOrDefault("group-pre-overload", ""));
-        msgPerfPhase1 = parseMessage(messages.getOrDefault("perf-phase1", ""));
-        msgPerfPhase2 = parseMessage(messages.getOrDefault("perf-phase2", ""));
-        msgPerfTotal = parseMessage(messages.getOrDefault("perf-total", ""));
-        msgPerfClassify = parseMessage(messages.getOrDefault("perf-classify", ""));
-        msgPerfCleanup = parseMessage(messages.getOrDefault("perf-cleanup", ""));
-        msgPerfHeader = parseMessage(messages.getOrDefault("perf-header", ""));
-        msgPerfNoData = parseMessage(messages.getOrDefault("perf-no-data", ""));
-        msgPerfDisabled = parseMessage(messages.getOrDefault("perf-disabled", ""));
-        msgPerfReset = parseMessage(messages.getOrDefault("perf-reset", ""));
-        msgProtectedStats = parseMessage(messages.getOrDefault("protected-stats", ""));
-        msgProtectedNamed = parseMessage(messages.getOrDefault("protected-named", ""));
-        msgProtectedLeashed = parseMessage(messages.getOrDefault("protected-leashed", ""));
-        msgProtectedTamed = parseMessage(messages.getOrDefault("protected-tamed", ""));
-        msgProtectedTotal = parseMessage(messages.getOrDefault("protected-total", ""));
-        msgProtectedEquipped = parseMessage(messages.getOrDefault("protected-equipped", ""));
-        msgProtectedBoss = parseMessage(messages.getOrDefault("protected-boss", ""));
+        msgReloadSuccess = parseMessage(messages.get("reload-success"));
+        msgNoPermission = parseMessage(messages.get("no-permission"));
+        msgPlayerOnly = parseMessage(messages.get("player-only"));
+        msgChunkHeader = parseMessage(messages.get("chunk-info-header"));
+        msgMobStats = parseMessage(messages.get("mob-stats"));
+        msgMobStatsLine = parseMessage(messages.get("mob-stats-line"));
+        msgItemStatsLine = parseMessage(messages.get("item-stats-line"));
+        msgTotalStats = parseMessage(messages.get("total-stats"));
+        msgItemStats = parseMessage(messages.get("item-stats"));
+        msgCleanupReport = parseMessage(messages.get("cleanup-report"));
+        msgPreOverload = parseMessage(messages.get("pre-overload"));
+        msgScopeSet = parseMessage(messages.get("scope-set"));
+        msgNotifyStatus = parseMessage(messages.get("notify-status"));
+        msgGroupCleanupReport = parseMessage(messages.get("group-cleanup-report"));
+        msgGroupPreOverload = parseMessage(messages.get("group-pre-overload"));
+        msgPerfPhase1 = parseMessage(messages.get("perf-phase1"));
+        msgPerfPhase2 = parseMessage(messages.get("perf-phase2"));
+        msgPerfTotal = parseMessage(messages.get("perf-total"));
+        msgPerfClassify = parseMessage(messages.get("perf-classify"));
+        msgPerfCleanup = parseMessage(messages.get("perf-cleanup"));
+        msgPerfHeader = parseMessage(messages.get("perf-header"));
+        msgPerfNoData = parseMessage(messages.get("perf-no-data"));
+        msgPerfDisabled = parseMessage(messages.get("perf-disabled"));
+        msgPerfReset = parseMessage(messages.get("perf-reset"));
+        msgProtectedStats = parseMessage(messages.get("protected-stats"));
+        msgProtectedNamed = parseMessage(messages.get("protected-named"));
+        msgProtectedLeashed = parseMessage(messages.get("protected-leashed"));
+        msgProtectedTamed = parseMessage(messages.get("protected-tamed"));
+        msgProtectedTotal = parseMessage(messages.get("protected-total"));
+        msgProtectedEquipped = parseMessage(messages.get("protected-equipped"));
+        msgProtectedBoss = parseMessage(messages.get("protected-boss"));
     }
 
-    /**
-     * 解析消息中的颜色代码
-     */
     private String parseMessage(String raw) {
         return raw != null ? ChatColor.translateAlternateColorCodes('&', raw) : "";
     }
 
-    /**
-     * 加载枚举集合
-     */
     private <T extends Enum<T>> void loadEnumSet(Set<T> set, List<String> values, Class<T> enumClass) {
         set.clear();
         values.forEach(str -> {
-            try {
-                set.add(Enum.valueOf(enumClass, str.toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                getLogger().warning("Invalid configuration item: " + str);
-            }
+            try { set.add(Enum.valueOf(enumClass, str.toUpperCase())); }
+            catch (IllegalArgumentException ignored) {}
         });
     }
 
-    /**
-     * 设置清理任务
-     */
     private void setupCleanupTask() {
         Runnable task = this::processAllChunks;
         if (IS_FOLIA) {
@@ -456,963 +395,225 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
     }
 
-    /**
-     * 调度区域任务
-     */
     private void scheduleRegionalTask(World world, int chunkX, int chunkZ, Runnable task) {
         if (IS_FOLIA) {
             try {
-                if (world == null) {
-                    getLogger().warning("Cannot schedule task for null world");
-                    return;
-                }
-
-                if (Math.abs(chunkX) > 29999984 || Math.abs(chunkZ) > 29999984) {
-                    getLogger().warning("Chunk coordinates out of range: " + chunkX + "," + chunkZ);
-                    return;
-                }
-
-                getServer().getRegionScheduler().run(this, world, chunkX, chunkZ, scheduledTask -> {
-                    try {
-                        task.run();
-                    } catch (Exception e) {
-                        getLogger().log(Level.WARNING, "Error in regional task execution", e);
-                    }
-                });
-            } catch (Exception e) {
-                getLogger().warning("Failed to schedule regional task for chunk " + chunkX + "," + chunkZ + ": " + e.getMessage());
-                try {
-                    getServer().getGlobalRegionScheduler().run(this, scheduledTask -> {
-                        try {
-                            task.run();
-                        } catch (Exception taskE) {
-                            getLogger().log(Level.WARNING, "Error in fallback task execution", taskE);
-                        }
-                    });
-                } catch (Exception fallbackE) {
-                    getLogger().log(Level.SEVERE, "Both regional and global scheduling failed", fallbackE);
-                }
-            }
+                if (world == null) return;
+                getServer().getRegionScheduler().run(this, world, chunkX, chunkZ, s -> task.run());
+            } catch (Exception ignored) {}
         } else {
-            try {
-                task.run();
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error executing task in Paper/Spigot", e);
-            }
+            task.run();
         }
     }
 
-    /**
-     * 调度位置任务
-     */
-    private void scheduleLocationTask(Location location, Runnable task) {
-        if (IS_FOLIA) {
-            try {
-                getServer().getRegionScheduler().execute(this, location, task);
-            } catch (Exception e) {
-                getLogger().warning("Failed to schedule location task at " + location + ": " + e.getMessage());
-                getServer().getGlobalRegionScheduler().run(this, scheduledTask -> task.run());
-            }
-        } else {
-            try {
-                task.run();
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error executing location task in Paper/Spigot", e);
-            }
-        }
-    }
-
-    /**
-     * 处理所有区块
-     */
     private void processAllChunks() {
         long totalStart = System.currentTimeMillis();
-
         try {
-            if (IS_FOLIA) {
-                processChunksWithFolia(totalStart);
-            } else {
-                processChunksWithPaper(totalStart);
-            }
+            if (IS_FOLIA) processChunksWithFolia(totalStart);
+            else processChunksWithPaper(totalStart);
         } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Critical error in chunk processing", e);
-            recordPerformance("Total-Cleanup", System.currentTimeMillis() - totalStart);
+            getLogger().log(Level.SEVERE, "Error in cleanup", e);
         }
     }
 
     private volatile long lastPhase1Duration = 0;
     private volatile long lastPhase2Duration = 0;
 
-    /**
-     * Folia 环境下处理区块
-     */
     private void processChunksWithFolia(long totalStart) {
-        Set<Chunk> globalProcessed = ConcurrentHashMap.newKeySet();
-        AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicInteger totalChunks = new AtomicInteger(0);
+        if (!cleanAllLoadedChunks) {
+            lastPhase1Duration = 0;
+            recordPerformance("Phase1-SingleChunks", 0);
 
-        Map<World, List<Chunk>> worldChunks = new ConcurrentHashMap<>();
-
-        try {
-            synchronized (this) {
-                for (World world : getServer().getWorlds()) {
-                    if (world == null) {
-                        getLogger().warning("Encountered null world during chunk collection");
-                        continue;
-                    }
-
-                    try {
-                        if (!world.getName().isEmpty() && world.getEnvironment() != null) {
-                            Chunk[] chunks = world.getLoadedChunks();
-                            if (chunks != null && chunks.length > 0) {
-                                List<Chunk> validChunks = Arrays.stream(chunks)
-                                        .filter(chunk -> chunk != null && chunk.isLoaded())
-                                        .limit(5000)
-                                        .collect(Collectors.toList());
-
-                                if (!validChunks.isEmpty()) {
-                                    worldChunks.put(world, validChunks);
-                                    totalChunks.addAndGet(validChunks.size());
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        getLogger().warning("Failed to get chunks for world " + world.getName() + ": " + e.getMessage());
-                    }
-                }
+            if (chunkCheckRadius > 0) {
+                processPhase2Folia(new HashSet<>(), totalStart);
+            } else {
+                recordPerformance("Total-Cleanup", System.currentTimeMillis() - totalStart);
             }
-        } catch (Exception e) {
-            getLogger().log(Level.SEVERE, "Critical error during world chunk collection", e);
-            recordPerformance("Total-Cleanup", System.currentTimeMillis() - totalStart);
             return;
         }
 
+        Set<Chunk> globalProcessed = ConcurrentHashMap.newKeySet();
+        AtomicInteger totalChunks = new AtomicInteger(0);
+
+        Map<World, List<Chunk>> worldChunks = new HashMap<>();
+        for (World world : getServer().getWorlds()) {
+            Chunk[] chunks = world.getLoadedChunks();
+            if (chunks.length > 0) {
+                List<Chunk> chunkList = new ArrayList<>(Math.min(chunks.length, 5000));
+                for(Chunk c : chunks) {
+                    if(c != null && c.isLoaded()) chunkList.add(c);
+                    if(chunkList.size() >= 5000) break;
+                }
+                worldChunks.put(world, chunkList);
+                totalChunks.addAndGet(chunkList.size());
+            }
+        }
+
         if (totalChunks.get() == 0) {
-            debug("No loaded chunks to process");
             recordPerformance("Total-Cleanup", System.currentTimeMillis() - totalStart);
             return;
         }
 
         long phase1Start = System.currentTimeMillis();
-        debug("Starting phase 1: processing " + totalChunks.get() + " chunks");
-
         AtomicInteger completedTasks = new AtomicInteger(0);
         AtomicBoolean phase1Completed = new AtomicBoolean(false);
 
         worldChunks.forEach((world, chunks) -> {
-            if (world == null || chunks == null) return;
-
             for (Chunk chunk : chunks) {
-                if (chunk == null) {
-                    int completed = completedTasks.incrementAndGet();
-                    checkPhase1Completion(completed, totalChunks.get(), phase1Completed,
-                            globalProcessed, totalStart, phase1Start);
-                    continue;
-                }
-
-                try {
-                    scheduleRegionalTaskWithRetry(world, chunk.getX(), chunk.getZ(), () -> {
-                        try {
-                            if (chunk != null && chunk.isLoaded() && chunk.getWorld() != null) {
-                                processSingleChunk(chunk);
-                                processedCount.incrementAndGet();
-                            }
-                        } catch (Exception e) {
-                            getLogger().log(Level.WARNING, "Error processing chunk: " +
-                                    chunk.getX() + "," + chunk.getZ(), e);
-                        } finally {
-                            int completed = completedTasks.incrementAndGet();
-                            checkPhase1Completion(completed, totalChunks.get(), phase1Completed,
-                                    globalProcessed, totalStart, phase1Start);
+                scheduleRegionalTask(world, chunk.getX(), chunk.getZ(), () -> {
+                    try {
+                        if (chunk.isLoaded()) processSingleChunk(chunk);
+                    } finally {
+                        int completed = completedTasks.incrementAndGet();
+                        if (completed >= totalChunks.get() && phase1Completed.compareAndSet(false, true)) {
+                            finishPhase1Folia(phase1Start, globalProcessed, totalStart);
                         }
-                    }, 3);
-                } catch (Exception e) {
-                    getLogger().log(Level.WARNING, "Error scheduling chunk task: " +
-                            chunk.getX() + "," + chunk.getZ(), e);
-                    int completed = completedTasks.incrementAndGet();
-                    checkPhase1Completion(completed, totalChunks.get(), phase1Completed,
-                            globalProcessed, totalStart, phase1Start);
-                }
+                    }
+                });
             }
         });
 
-        long timeoutTicks = Math.max(600L, Math.min(2400L, totalChunks.get() / 3));
-        getServer().getGlobalRegionScheduler().runDelayed(this, task -> {
-            if (!phase1Completed.get()) {
-                getLogger().warning(String.format("Phase 1 timeout after %d ticks: only %d/%d chunks completed",
-                        timeoutTicks, completedTasks.get(), totalChunks.get()));
-
-                if (phase1Completed.compareAndSet(false, true)) {
-                    long phase1Duration = System.currentTimeMillis() - phase1Start;
-                    lastPhase1Duration = phase1Duration;
-                    recordPerformance("Phase1-SingleChunks", phase1Duration);
-
-                    if (chunkCheckRadius > 0) {
-                        try {
-                            processPhase2Folia(globalProcessed, totalStart);
-                        } catch (Exception e) {
-                            getLogger().log(Level.WARNING, "Error in forced phase 2 start", e);
-                            recordPerformance("Total-Cleanup", lastPhase1Duration);
-                        }
-                    } else {
-                        recordPerformance("Total-Cleanup", lastPhase1Duration);
-                    }
-                }
+        getServer().getGlobalRegionScheduler().runDelayed(this, t -> {
+            if (phase1Completed.compareAndSet(false, true)) {
+                finishPhase1Folia(phase1Start, globalProcessed, totalStart);
             }
-        }, timeoutTicks);
+        }, 1200L);
     }
 
-    /**
-     * 带重试的区域任务调度
-     */
-    private void scheduleRegionalTaskWithRetry(World world, int chunkX, int chunkZ, Runnable task, int maxRetries) {
-        scheduleRegionalTaskWithRetry(world, chunkX, chunkZ, task, maxRetries, 0);
-    }
+    private void finishPhase1Folia(long phase1Start, Set<Chunk> globalProcessed, long totalStart) {
+        long duration = System.currentTimeMillis() - phase1Start;
+        lastPhase1Duration = duration;
+        recordPerformance("Phase1-SingleChunks", duration);
 
-    private void scheduleRegionalTaskWithRetry(World world, int chunkX, int chunkZ, Runnable task, int maxRetries, int currentAttempt) {
-        if (currentAttempt >= maxRetries) {
-            getLogger().warning("Failed to schedule task after " + maxRetries + " attempts for chunk " + chunkX + "," + chunkZ);
-            try {
-                task.run();
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error in fallback task execution", e);
-            }
-            return;
-        }
-
-        try {
-            if (IS_FOLIA) {
-                getServer().getRegionScheduler().run(this, world, chunkX, chunkZ, scheduledTask -> {
-                    try {
-                        task.run();
-                    } catch (Exception e) {
-                        getLogger().log(Level.WARNING, "Error in regional task execution", e);
-                    }
-                });
-            } else {
-                task.run();
-            }
-        } catch (Exception e) {
-            getLogger().warning("Scheduling attempt " + (currentAttempt + 1) + " failed for chunk " +
-                    chunkX + "," + chunkZ + ": " + e.getMessage());
-
-            if (currentAttempt < maxRetries - 1) {
-                long delay = Math.min(20L * (1L << currentAttempt), 100L);
-
-                if (IS_FOLIA) {
-                    getServer().getGlobalRegionScheduler().runDelayed(this,
-                            retryTask -> scheduleRegionalTaskWithRetry(world, chunkX, chunkZ, task, maxRetries, currentAttempt + 1),
-                            delay);
-                } else {
-                    scheduleRegionalTaskWithRetry(world, chunkX, chunkZ, task, maxRetries, currentAttempt + 1);
-                }
-            } else {
-                try {
-                    task.run();
-                } catch (Exception fallbackE) {
-                    getLogger().log(Level.WARNING, "Final fallback execution failed", fallbackE);
-                }
-            }
+        if (chunkCheckRadius > 0) {
+            processPhase2Folia(globalProcessed, totalStart);
+        } else {
+            recordPerformance("Total-Cleanup", duration);
         }
     }
 
-    /**
-     * 检查阶段1是否完成
-     */
-    private void checkPhase1Completion(int completed, int total, AtomicBoolean phase1Completed,
-                                       Set<Chunk> globalProcessed, long totalStart, long phase1Start) {
-        if (completed >= total && phase1Completed.compareAndSet(false, true)) {
-            try {
-                long phase1Duration = System.currentTimeMillis() - phase1Start;
-                lastPhase1Duration = phase1Duration;
-                recordPerformance("Phase1-SingleChunks", phase1Duration);
-                debug("Phase 1 completed in " + phase1Duration + "ms");
-
-                if (chunkCheckRadius > 0) {
-                    getServer().getGlobalRegionScheduler().runDelayed(this,
-                            task -> {
-                                try {
-                                    processPhase2Folia(globalProcessed, totalStart);
-                                } catch (Exception e) {
-                                    getLogger().log(Level.WARNING, "Error in delayed phase 2 processing", e);
-                                    recordPerformance("Total-Cleanup", lastPhase1Duration);
-                                } finally {
-                                    globalProcessed.clear();
-                                }
-                            }, 10L);
-                } else {
-                    recordPerformance("Total-Cleanup", lastPhase1Duration);
-                    globalProcessed.clear();
-                    debug("Cleanup completed, no phase 2 needed");
-                }
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error in phase 1 completion", e);
-                recordPerformance("Total-Cleanup", lastPhase1Duration);
-                globalProcessed.clear();
-            }
-        }
-    }
-
-    /**
-     * Folia 环境下处理阶段2
-     */
-    private void processPhase2Folia(Set<Chunk> globalProcessed, long totalStart) {
-        long phase2Start = System.currentTimeMillis();
-        debug("Starting phase 2: processing player chunk groups");
-
-        List<Player> onlinePlayers = new ArrayList<>(getServer().getOnlinePlayers());
-
-        if (onlinePlayers.isEmpty()) {
-            debug("No online players, skipping phase 2");
-            lastPhase2Duration = 0L;
-            recordPerformance("Phase2-GroupChunks", 0L);
-            recordPerformance("Total-Cleanup", lastPhase1Duration);
-            return;
-        }
-
-        AtomicInteger playersProcessed = new AtomicInteger(0);
-        final int totalPlayers = onlinePlayers.size();
-
-        debug("Processing chunk groups for " + totalPlayers + " players");
-
-        for (Player player : onlinePlayers) {
-            if (!player.isOnline()) {
-                int processed = playersProcessed.incrementAndGet();
-                if (processed == totalPlayers) {
-                    finishPhase2(phase2Start, totalStart);
-                }
-                continue;
-            }
-
-            try {
-                Location playerLoc = player.getLocation();
-                if (playerLoc.getWorld() == null) {
-                    int processed = playersProcessed.incrementAndGet();
-                    if (processed == totalPlayers) {
-                        finishPhase2(phase2Start, totalStart);
-                    }
-                    continue;
-                }
-
-                scheduleLocationTask(playerLoc, () -> {
-                    try {
-                        processPlayerChunkGroup(player, globalProcessed);
-                    } catch (Exception e) {
-                        getLogger().log(Level.WARNING, "Error processing player chunk group for: " + player.getName(), e);
-                    } finally {
-                        int processed = playersProcessed.incrementAndGet();
-                        if (processed % 10 == 0 || processed == totalPlayers) {
-                            debug(String.format("Phase 2 progress: %d/%d players processed", processed, totalPlayers));
-                        }
-
-                        if (processed == totalPlayers) {
-                            finishPhase2(phase2Start, totalStart);
-                        }
-                    }
-                });
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error scheduling player task for: " + player.getName(), e);
-                int processed = playersProcessed.incrementAndGet();
-                if (processed == totalPlayers) {
-                    finishPhase2(phase2Start, totalStart);
-                }
-            }
-        }
-
-        getServer().getGlobalRegionScheduler().runDelayed(this, task -> {
-            if (playersProcessed.get() < totalPlayers) {
-                getLogger().warning(String.format("Phase 2 timeout: only %d/%d players processed",
-                        playersProcessed.get(), totalPlayers));
-                finishPhase2(phase2Start, totalStart);
-            }
-        }, 100L);
-    }
-
-    /**
-     * 完成阶段2
-     */
-    private void finishPhase2(long phase2Start, long totalStart) {
-        long phase2Duration = System.currentTimeMillis() - phase2Start;
-        lastPhase2Duration = phase2Duration;
-        recordPerformance("Phase2-GroupChunks", phase2Duration);
-
-        long totalCleanupTime = lastPhase1Duration + lastPhase2Duration;
-        recordPerformance("Total-Cleanup", totalCleanupTime);
-
-        debug(String.format("Phase 2 completed in %dms, total cleanup time: %dms (Phase1: %dms + Phase2: %dms)",
-                phase2Duration, totalCleanupTime, lastPhase1Duration, lastPhase2Duration));
-    }
-
-    /**
-     * Paper 环境下处理区块
-     */
     private void processChunksWithPaper(long totalStart) {
-        Set<Chunk> globalProcessed = ConcurrentHashMap.newKeySet();
-
         long phase1Start = System.currentTimeMillis();
+        Set<Chunk> globalProcessed = (chunkCheckRadius > 0) ? new HashSet<>() : null;
 
-        List<Chunk> allChunks = new ArrayList<>();
-        for (World world : getServer().getWorlds()) {
-            Collections.addAll(allChunks, world.getLoadedChunks());
-        }
-
-        debug("Processing " + allChunks.size() + " loaded chunks");
-
-        for (Chunk chunk : allChunks) {
-            try {
-                processSingleChunk(chunk);
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error processing chunk: " + chunk, e);
+        if (cleanAllLoadedChunks) {
+            for (World world : getServer().getWorlds()) {
+                for (Chunk chunk : world.getLoadedChunks()) {
+                    if (chunk != null && chunk.isLoaded()) {
+                        processSingleChunk(chunk);
+                    }
+                }
             }
         }
 
         long phase1End = System.currentTimeMillis();
-        recordPerformance("Phase1-SingleChunks", phase1End - phase1Start);
+        lastPhase1Duration = phase1End - phase1Start;
+        recordPerformance("Phase1-SingleChunks", lastPhase1Duration);
 
         if (chunkCheckRadius > 0) {
-            getServer().getScheduler().runTaskLater(this, () -> {
-                try {
-                    long phase2Start = System.currentTimeMillis();
-
-                    List<Player> onlinePlayers = new ArrayList<>(getServer().getOnlinePlayers());
-                    for (Player player : onlinePlayers) {
-                        processPlayerChunkGroup(player, globalProcessed);
-                    }
-
-                    long phase2End = System.currentTimeMillis();
-                    recordPerformance("Phase2-GroupChunks", phase2End - phase2Start);
-
-                    long totalCleanupTime = (phase1End - phase1Start) + (phase2End - phase2Start);
-                    recordPerformance("Total-Cleanup", totalCleanupTime);
-
-                } catch (Exception e) {
-                    getLogger().log(Level.WARNING, "Error in phase 2 processing", e);
-                }
-            }, 20L);
+            long phase2Start = System.currentTimeMillis();
+            for (Player player : getServer().getOnlinePlayers()) {
+                processPlayerChunkGroup(player, globalProcessed);
+            }
+            long phase2End = System.currentTimeMillis();
+            lastPhase2Duration = phase2End - phase2Start;
+            recordPerformance("Phase2-GroupChunks", lastPhase2Duration);
+            recordPerformance("Total-Cleanup", (phase1End - phase1Start) + lastPhase2Duration);
         } else {
-            recordPerformance("Total-Cleanup", phase1End - phase1Start);
+            recordPerformance("Total-Cleanup", lastPhase1Duration);
         }
     }
 
-    /**
-     * 处理玩家周围的区块组
-     */
-    private void processPlayerChunkGroup(Player player, Set<Chunk> globalProcessed) {
-        if (chunkCheckRadius <= 0) return;
+    private void processPhase2Folia(Set<Chunk> globalProcessed, long totalStart) {
+        long phase2Start = System.currentTimeMillis();
+        List<Player> players = new ArrayList<>(getServer().getOnlinePlayers());
 
-        final Player finalPlayer = player;
-        if (!finalPlayer.isOnline()) {
-            debug("Player " + finalPlayer.getName() + " went offline during processing");
+        if (players.isEmpty()) {
+            recordPerformance("Total-Cleanup", System.currentTimeMillis() - totalStart);
             return;
         }
 
-        final Location loc = finalPlayer.getLocation();
-        if (loc == null || loc.getWorld() == null) {
-            getLogger().warning("Player " + finalPlayer.getName() + " has null location or world");
-            return;
-        }
-
-        if (!this.isEnabled()) return;
-
-        getServer().getRegionScheduler().run(this, loc, task -> {
-            if (!finalPlayer.isOnline()) {
-                debug("Player " + finalPlayer.getName() + " went offline during region scheduling");
-                return;
-            }
-
-            final int currentRadius = chunkCheckRadius;
-            if (currentRadius <= 0) return;
-
-            try {
-                Chunk center = loc.getChunk();
-                if (center == null || !center.isLoaded()) {
-                    getLogger().warning("Cannot get valid chunk for player " + finalPlayer.getName());
-                    return;
-                }
-
-                World world = loc.getWorld();
-                if (world == null) {
-                    getLogger().warning("World is null for player " + finalPlayer.getName());
-                    return;
-                }
-
-                List<Chunk> chunkGroup = new ArrayList<>();
-                int skippedChunks = 0;
-                int duplicateChunks = 0;
-                int invalidChunks = 0;
-
-                int centerX = center.getX();
-                int centerZ = center.getZ();
-
-                for (int x = -currentRadius; x <= currentRadius; x++) {
-                    for (int z = -currentRadius; z <= currentRadius; z++) {
-                        try {
-                            int chunkX = centerX + x;
-                            int chunkZ = centerZ + z;
-
-                            if (Math.abs(chunkX) > 1875000 || Math.abs(chunkZ) > 1875000) {
-                                skippedChunks++;
-                                continue;
-                            }
-
-                            if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                                skippedChunks++;
-                                continue;
-                            }
-
-                            Chunk chunk = world.getChunkAt(chunkX, chunkZ);
-
-                            if (chunk == null) {
-                                skippedChunks++;
-                                continue;
-                            }
-
-                            if (!chunk.isLoaded()) {
-                                skippedChunks++;
-                                continue;
-                            }
-
-                            if (chunk.getX() != chunkX || chunk.getZ() != chunkZ) {
-                                getLogger().warning(String.format("Chunk coordinate mismatch: expected (%d,%d), got (%d,%d)",
-                                        chunkX, chunkZ, chunk.getX(), chunk.getZ()));
-                                invalidChunks++;
-                                continue;
-                            }
-
-                            synchronized (globalProcessed) {
-                                if (globalProcessed.add(chunk)) {
-                                    chunkGroup.add(chunk);
-                                } else {
-                                    duplicateChunks++;
-                                }
-                            }
-                        } catch (Exception e) {
-                            getLogger().warning(String.format("Error processing chunk offset (%d,%d) for player %s: %s",
-                                    x, z, finalPlayer.getName(), e.getMessage()));
-                            invalidChunks++;
-                        }
-                    }
-                }
-
-                debug(String.format("Player %s chunk group: %d collected, %d skipped, %d duplicates, %d invalid",
-                        finalPlayer.getName(), chunkGroup.size(), skippedChunks, duplicateChunks, invalidChunks));
-
-                if (!chunkGroup.isEmpty()) {
-                    try {
-                        processChunkGroupWithWarning(chunkGroup);
-                        debug(String.format("Processed chunk group for player %s with %d chunks",
-                                finalPlayer.getName(), chunkGroup.size()));
-                    } catch (Exception e) {
-                        getLogger().log(Level.WARNING, "Error processing chunk group for player " + finalPlayer.getName(), e);
-                    }
-                } else {
-                    debug("No new chunks to process for player " + finalPlayer.getName());
-                }
-
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error in region task for player: " +
-                        finalPlayer.getName(), e);
-            }
-        });
-    }
-
-    /**
-     * 处理区块组并发出警告
-     */
-    private void processChunkGroupWithWarning(List<Chunk> chunks) {
-        if (chunks.isEmpty()) return;
-
-        try {
-            long classifyStart = System.currentTimeMillis();
-
-            Map<EntityType, List<Entity>> mobs = new HashMap<>();
-            List<Entity> allItems = new ArrayList<>();
-            int totalProcessed = 0;
-            int failedChunks = 0;
-
-            for (Chunk chunk : chunks) {
-                if (!chunk.isLoaded()) {
-                    failedChunks++;
-                    continue;
-                }
-
-                try {
-                    Entity[] entities = chunk.getEntities();
-
-                    // 优化：预先过滤并分类
-                    for (Entity entity : entities) {
-                        if (entity instanceof Player) continue;
-
-                        // 统一的有效性检查
-                        boolean isValid = false;
-                        if (IS_FOLIA) {
-                            try {
-                                isValid = entity != null && entity.isValid() && !entity.isDead();
-                            } catch (IllegalStateException ex) {
-                                continue;
-                            }
-                        } else {
-                            isValid = entity != null && entity.isValid() && !entity.isDead();
-                        }
-
-                        if (!isValid) continue;
-
-                        try {
-                            // 快速分类
-                            if (entity instanceof Item) {
-                                Item item = (Item) entity;
-                                ItemStack itemStack = item.getItemStack();
-                                if (itemStack != null && itemStack.getType() != Material.AIR &&
-                                        !ignoredItems.contains(itemStack.getType())) {
-                                    allItems.add(entity);
-                                }
-                            } else if (entity instanceof LivingEntity) {
-                                EntityType type = entity.getType();
-                                if (!ignoredTypes.contains(type)) {
-                                    mobs.computeIfAbsent(type, k -> new ArrayList<>()).add(entity);
-                                }
-                            }
-                            totalProcessed++;
-                        } catch (Exception e) {
-                            debug("Error classifying entity: " + entity.getType() + " - " + e.getMessage());
-                        }
-                    }
-                } catch (Exception e) {
-                    getLogger().warning("Error processing chunk " + chunk.getX() + "," + chunk.getZ() + ": " + e.getMessage());
-                    failedChunks++;
-                }
-            }
-
-            recordPerformance("Entity-Classification", System.currentTimeMillis() - classifyStart);
-
-            if (failedChunks > 0) {
-                debug(String.format("Failed to process %d chunks in group", failedChunks));
-            }
-
-            long cleanupStart = System.currentTimeMillis();
-
-            AtomicInteger removedMobs = new AtomicInteger(0);
-            mobs.forEach((type, list) -> {
-                if (list.isEmpty()) return;
-
-                try {
-                    int singleChunkLimit = getLimitFor(type);
-                    int groupLimit = (int) Math.ceil(singleChunkLimit * chunkEntityMultiplier);
-
-                    if (list.size() >= groupLimit * thresholdRatio) {
-                        sendGroupWarning(chunks, type.name(), list.size(), groupLimit);
-                    }
-
-                    int removed = enforceLimit(list, groupLimit);
-                    if (removed > 0) {
-                        removedMobs.addAndGet(removed);
-                        debug(String.format("Removed %d %s entities from chunk group", removed, type.name()));
-                    }
-                } catch (Exception e) {
-                    getLogger().log(Level.WARNING, "Error processing mob type: " + type, e);
-                }
-            });
-
-            int removedItems = 0;
-            if (!allItems.isEmpty()) {
-                try {
-                    int groupItemLimit = (int) Math.ceil(itemLimit * chunkItemMultiplier);
-
-                    if (allItems.size() >= groupItemLimit * thresholdRatio) {
-                        sendGroupWarning(chunks, "Items", allItems.size(), groupItemLimit);
-                    }
-
-                    removedItems = enforceLimit(allItems, groupItemLimit);
-                    if (removedItems > 0) {
-                        debug(String.format("Removed %d items from chunk group", removedItems));
-                    }
-                } catch (Exception e) {
-                    getLogger().log(Level.WARNING, "Error processing items in chunk group", e);
-                }
-            }
-
-            recordPerformance("Cleanup-Enforcement", System.currentTimeMillis() - cleanupStart);
-
-            if (removedMobs.get() + removedItems > 0) {
-                sendGroupCleanupReportToNearby(chunks, removedMobs.get(), removedItems);
-            }
-
-            debug(String.format("Processed chunk group: %d entities, removed %d mobs and %d items",
-                    totalProcessed, removedMobs.get(), removedItems));
-
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Error processing chunk group", e);
-        }
-    }
-
-    /**
-     * 发送区块组警告
-     */
-    private void sendGroupWarning(List<Chunk> chunks, String typeName, int current, int limit) {
-        if (chunks.isEmpty()) return;
-
-        Chunk firstChunk = chunks.get(0);
-        if (!isChunkValid(firstChunk)) return;
-
-        World world = firstChunk.getWorld();
-
-        int centerChunkX = chunks.stream().mapToInt(Chunk::getX).sum() / chunks.size();
-        int centerChunkZ = chunks.stream().mapToInt(Chunk::getZ).sum() / chunks.size();
-
-        String groupKey = typeName + ":group:" + world.getName() + ":" + centerChunkX + ":" + centerChunkZ;
-
-        if (System.currentTimeMillis() - lastNotifyTimes.getOrDefault(groupKey, 0L) > notifyCooldown * 1000L) {
-            double centerX = centerChunkX * 16 + 8;
-            double centerZ = centerChunkZ * 16 + 8;
-            Location center = new Location(world, centerX, world.getHighestBlockYAt((int)centerX, (int)centerZ), centerZ);
-
-            Map<String, String> params = new HashMap<>();
-            params.put("type", typeName);
-            params.put("world", world.getName());
-            params.put("centerX", String.valueOf(centerChunkX));
-            params.put("centerZ", String.valueOf(centerChunkZ));
-            params.put("current", String.valueOf(current));
-            params.put("max", String.valueOf(limit));
-
-            String message = replacePlaceholders(msgGroupPreOverload, params);
-
-            sendMessageToNearbyPlayers(center, message, 128);
-
-            lastNotifyTimes.put(groupKey, System.currentTimeMillis());
-
-            if (lastNotifyTimes.size() > 1000) {
-                lastNotifyTimes.keySet().removeIf(key ->
-                        System.currentTimeMillis() - lastNotifyTimes.get(key) > notifyCooldown * 2000L
-                );
-            }
-        }
-    }
-
-    /**
-     * 发送区块组清理报告给附近玩家
-     */
-    private void sendGroupCleanupReportToNearby(List<Chunk> chunks, int removedMobs, int removedItems) {
-        if (removedMobs + removedItems == 0 || chunks.isEmpty()) return;
-
-        Chunk firstChunk = chunks.get(0);
-        World world = firstChunk.getWorld();
-        if (world == null) return;
-
-        int centerChunkX = chunks.stream().mapToInt(Chunk::getX).sum() / chunks.size();
-        int centerChunkZ = chunks.stream().mapToInt(Chunk::getZ).sum() / chunks.size();
-
-        int minX = chunks.stream().mapToInt(Chunk::getX).min().orElse(0);
-        int maxX = chunks.stream().mapToInt(Chunk::getX).max().orElse(0);
-        int minZ = chunks.stream().mapToInt(Chunk::getZ).min().orElse(0);
-        int maxZ = chunks.stream().mapToInt(Chunk::getZ).max().orElse(0);
-
-        double centerX = centerChunkX * 16 + 8;
-        double centerZ = centerChunkZ * 16 + 8;
-        Location center = new Location(world, centerX, world.getHighestBlockYAt((int)centerX, (int)centerZ), centerZ);
-
-        Map<String, String> params = new HashMap<>();
-        params.put("mobs", String.valueOf(removedMobs));
-        params.put("items", String.valueOf(removedItems));
-        if (chunks.size() == 1) {
-            params.put("x", String.valueOf(centerChunkX));
-            params.put("z", String.valueOf(centerChunkZ));
-        } else {
-            params.put("x", minX + "~" + maxX);
-            params.put("z", minZ + "~" + maxZ);
-        }
-        params.put("world", world.getName());
-
-        String message = replacePlaceholders(msgGroupCleanupReport, params);
-
-        sendMessageToNearbyPlayers(center, message, 128);
-
-        getLogger().info(ChatColor.stripColor(message));
-    }
-
-    /**
-     * 发送消息给附近玩家
-     */
-    private void sendMessageToNearbyPlayers(Location center, String message, double defaultRadius) {
-        if (!enableNotifications) return;
-        if (center.getWorld() == null) return;
-
-        double radius = notificationRadius > 0 ? notificationRadius : defaultRadius;
-
-        center.getWorld().getPlayers().stream()
-                .filter(p -> {
-                    Location pLoc = p.getLocation();
-                    double dx = pLoc.getX() - center.getX();
-                    double dz = pLoc.getZ() - center.getZ();
-                    return Math.sqrt(dx * dx + dz * dz) <= radius;
-                })
-                .forEach(p -> p.sendMessage(message));
-    }
-
-    /**
-     * 处理单个区块
-     */
-    private void processSingleChunk(Chunk chunk) {
-        try {
-            if (!isChunkValid(chunk)) {
-                return;
-            }
-
-            long classifyStart = System.currentTimeMillis();
-
-            // 优化：预先过滤无效实体
-            List<Entity> validEntities = new ArrayList<>();
-            for (Entity e : chunk.getEntities()) {
-                if (e instanceof Player) continue;
-
-                // 统一的有效性检查
-                if (IS_FOLIA) {
-                    try {
-                        if (e != null && e.isValid() && !e.isDead()) {
-                            validEntities.add(e);
-                        }
-                    } catch (IllegalStateException ex) {
-                        // Folia 线程检查失败，跳过
-                        continue;
-                    }
-                } else {
-                    if (e != null && e.isValid() && !e.isDead()) {
-                        validEntities.add(e);
-                    }
-                }
-            }
-
-            // 对已过滤的实体进行分类
-            Map<EntityCategory, List<Entity>> entities = validEntities.stream()
-                    .collect(Collectors.groupingBy(this::classifyEntityFast));
-
-            recordPerformance("Entity-Classification", System.currentTimeMillis() - classifyStart);
-
-            long cleanupStart = System.currentTimeMillis();
-            int removedMobs = processMobs(entities.getOrDefault(EntityCategory.MOB, Collections.emptyList()));
-            int removedItems = processItems(entities.getOrDefault(EntityCategory.ITEM, Collections.emptyList()));
-            recordPerformance("Cleanup-Enforcement", System.currentTimeMillis() - cleanupStart);
-
-            sendCleanupReport(chunk, removedMobs, removedItems);
-            checkChunkStatus(chunk);
-
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "处理区块时出错: " + chunk.getX() + "," + chunk.getZ(), e);
-        }
-    }
-
-    /**
-     * 快速分类实体（假设已经过有效性检查）
-     */
-    private EntityCategory classifyEntityFast(Entity e) {
-        try {
-            // 最常见的情况优先检查
-            if (e instanceof Item) {
-                return EntityCategory.ITEM;
-            }
-
-            if (!(e instanceof LivingEntity)) {
-                return EntityCategory.OTHER;
-            }
-
-            return ignoredTypes.contains(e.getType()) ?
-                    EntityCategory.OTHER : EntityCategory.MOB;
-
-        } catch (Exception ex) {
-            debug("Failed to classify entity: " + ex.getMessage());
-            return EntityCategory.OTHER;
-        }
-    }
-
-    /**
-     * 验证区块是否有效
-     */
-    private boolean isChunkValid(Chunk chunk) {
-        if (chunk == null) return false;
-
-        try {
-            if (!chunk.isLoaded()) return false;
-
-            World world = chunk.getWorld();
-            if (world == null) return false;
-
-            int x = chunk.getX();
-            int z = chunk.getZ();
-            if (Math.abs(x) > 1875000 || Math.abs(z) > 1875000) {
-                return false;
-            }
-
-            return true;
-        } catch (Exception e) {
-            debug("Error validating chunk: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * 获取实体类型的限制
-     */
-    private int getLimitFor(EntityType type) {
-        if (ignoredTypes.contains(type)) {
-            return Integer.MAX_VALUE;
-        }
-        return customLimits.getOrDefault(type.name(), defaultLimit);
-    }
-
-    /**
-     * 实体分类枚举
-     */
-    private enum EntityCategory { MOB, ITEM, OTHER }
-
-    /**
-     * 对实体进行分类
-     */
-    private EntityCategory classifyEntity(Entity e) {
-        try {
-            if (e == null) return EntityCategory.OTHER;
-
+        AtomicInteger processed = new AtomicInteger(0);
+        int total = players.size();
+
+        for (Player p : players) {
+            Location loc = p.getLocation();
             if (IS_FOLIA) {
-                Location loc = e.getLocation();
-                if (loc == null || loc.getWorld() == null) {
-                    return EntityCategory.OTHER;
-                }
-
-                try {
-                    if (!e.isValid() || e.isDead()) {
-                        return EntityCategory.OTHER;
-                    }
-                } catch (Exception ex) {
-                    return EntityCategory.OTHER;
-                }
+                getServer().getRegionScheduler().execute(this, loc, () -> {
+                    try { processPlayerChunkGroup(p, globalProcessed); }
+                    finally { checkPhase2Finish(processed, total, phase2Start, totalStart); }
+                });
+            } else {
+                processPlayerChunkGroup(p, globalProcessed);
+                checkPhase2Finish(processed, total, phase2Start, totalStart);
             }
-
-            if (e instanceof Item) {
-                return EntityCategory.ITEM;
-            }
-
-            if (e instanceof Player) {
-                return EntityCategory.OTHER;
-            }
-
-            if (!(e instanceof LivingEntity)) {
-                return EntityCategory.OTHER;
-            }
-
-            return ignoredTypes.contains(e.getType()) ?
-                    EntityCategory.OTHER : EntityCategory.MOB;
-
-        } catch (Exception ex) {
-            debug("Failed to classify entity: " + ex.getMessage());
-            return EntityCategory.OTHER;
         }
     }
 
-    /**
-     * 处理生物实体
-     */
-    private int processMobs(List<Entity> mobs) {
-        int totalRemoved = 0;
-        Map<EntityType, List<Entity>> grouped = new HashMap<>();
+    private void checkPhase2Finish(AtomicInteger processed, int total, long phase2Start, long totalStart) {
+        if (processed.incrementAndGet() >= total) {
+            long p2Duration = System.currentTimeMillis() - phase2Start;
+            recordPerformance("Phase2-GroupChunks", p2Duration);
+            recordPerformance("Total-Cleanup", System.currentTimeMillis() - totalStart);
+        }
+    }
 
+    private void processSingleChunk(Chunk chunk) {
+        if (!isChunkValid(chunk)) return;
+
+        long classifyStart = System.currentTimeMillis();
+        Entity[] allEntities = chunk.getEntities();
+        if (allEntities.length == 0) return;
+
+        List<Entity> mobs = new ArrayList<>(Math.min(allEntities.length, 64));
+        List<Entity> items = new ArrayList<>(Math.min(allEntities.length, 32));
+
+        ChunkStats stats = new ChunkStats();
+        int validEntityCount = 0;
+
+        for (Entity e : allEntities) {
+            if (e == null || e instanceof Player) continue;
+            if (!e.isValid() && !e.isDead()) continue;
+
+            validEntityCount++;
+            EntityType type = e.getType();
+
+            if (e instanceof Item) {
+                ItemStack stack = ((Item) e).getItemStack();
+                if (stack != null && stack.getType() != Material.AIR && !ignoredItems.contains(stack.getType())) {
+                    items.add(e);
+                    int amount = countItemStackAmount ? stack.getAmount() : 1;
+                    stats.itemCounts.merge(stack.getType(), amount, Integer::sum);
+                }
+            } else if (e instanceof LivingEntity && !ignoredTypes.contains(type)) {
+                mobs.add(e);
+                stats.mobCounts.merge(type, 1, Integer::sum);
+            }
+        }
+
+        String chunkKey = chunk.getWorld().getName() + ":" + chunk.getX() + ":" + chunk.getZ();
+        chunkStatsCache.put(chunkKey, new CachedChunkStats(stats, validEntityCount));
+        if (chunkStatsCache.size() > 200) cleanOldestStatsCache();
+
+        recordPerformance("Entity-Classification", System.currentTimeMillis() - classifyStart);
+
+        long cleanupStart = System.currentTimeMillis();
+        int removedMobs = processMobs(mobs);
+        int removedItems = processItems(items);
+        recordPerformance("Cleanup-Enforcement", System.currentTimeMillis() - cleanupStart);
+
+        if (removedMobs + removedItems > 0) {
+            debug("Chunk " + chunk.getX() + "," + chunk.getZ() + " cleaned: " + removedMobs + " mobs, " + removedItems + " items");
+            sendCleanupReport(chunk, removedMobs, removedItems, stats);
+        } else {
+            checkChunkStatus(chunk, stats);
+        }
+    }
+
+    private int processMobs(List<Entity> mobs) {
+        if (mobs.isEmpty()) return 0;
+
+        Map<EntityType, List<Entity>> grouped = new HashMap<>();
         for (Entity e : mobs) {
             if (!e.getPersistentDataContainer().has(SPAWN_TIME_KEY, PersistentDataType.LONG)) {
                 e.getPersistentDataContainer().set(SPAWN_TIME_KEY, PersistentDataType.LONG, System.currentTimeMillis());
@@ -1420,585 +621,421 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
             grouped.computeIfAbsent(e.getType(), k -> new ArrayList<>()).add(e);
         }
 
+        int totalRemoved = 0;
         for (Map.Entry<EntityType, List<Entity>> entry : grouped.entrySet()) {
             int limit = customLimits.getOrDefault(entry.getKey().name(), defaultLimit);
-            int removed = enforceLimit(entry.getValue(), limit);
-            removalStats.merge(entry.getKey(), (long)removed, Long::sum);
-            totalRemoved += removed;
+            int removed = enforceLimit(entry.getValue(), limit, false);
+            if (removed > 0) {
+                removalStats.merge(entry.getKey(), (long)removed, Long::sum);
+                totalRemoved += removed;
+            }
         }
         return totalRemoved;
     }
 
-    /**
-     * 处理物品实体
-     */
     private int processItems(List<Entity> items) {
         if (items.isEmpty()) return 0;
+        for(Entity e : items) {
+            if (!e.getPersistentDataContainer().has(SPAWN_TIME_KEY, PersistentDataType.LONG)) {
+                e.getPersistentDataContainer().set(SPAWN_TIME_KEY, PersistentDataType.LONG, System.currentTimeMillis());
+            }
+        }
+        return enforceLimit(items, itemLimit, true);
+    }
 
-        List<Entity> validItems = new ArrayList<>();
+    private int enforceLimit(List<Entity> entities, int limit, boolean isItem) {
+        if (entities.isEmpty()) return 0;
 
-        for (Entity item : items) {
-            try {
-                if (!(item instanceof Item)) continue;
-                if (!item.isValid() || item.isDead()) continue;
+        int currentSize = 0;
+        if (isItem && countItemStackAmount) {
+            for (Entity e : entities) {
+                if (e instanceof Item) currentSize += ((Item)e).getItemStack().getAmount();
+                else currentSize++;
+            }
+        } else {
+            currentSize = entities.size();
+        }
 
-                Item itemEntity = (Item) item;
-                ItemStack itemStack = itemEntity.getItemStack();
+        if (currentSize <= limit) return 0;
 
-                if (itemStack == null || itemStack.getType() == Material.AIR || itemStack.getAmount() <= 0) {
-                    continue;
+        List<EntityTimeWrapper> wrappers = new ArrayList<>(entities.size());
+
+        for (Entity e : entities) {
+            boolean protectedEntity = !isItem && isEntityProtected(e);
+            boolean canRemove = !protectedEntity;
+
+            if (cleanProtectedIfOverLimit && protectedEntity) {
+                canRemove = true;
+            } else if (ignoredTypes.contains(e.getType())) {
+                canRemove = false;
+            }
+
+            if (canRemove) {
+                int weight = 1;
+                if (isItem && countItemStackAmount && e instanceof Item) {
+                    weight = ((Item)e).getItemStack().getAmount();
                 }
-
-                if (ignoredItems.contains(itemStack.getType())) {
-                    continue;
-                }
-
-                if (!item.getPersistentDataContainer().has(SPAWN_TIME_KEY, PersistentDataType.LONG)) {
-                    item.getPersistentDataContainer().set(SPAWN_TIME_KEY,
-                            PersistentDataType.LONG, System.currentTimeMillis());
-                }
-
-                validItems.add(item);
-            } catch (Exception e) {
-                debug("Error processing item entity: " + e.getMessage());
+                wrappers.add(new EntityTimeWrapper(e, SPAWN_TIME_KEY, protectedEntity, weight));
             }
         }
 
-        return enforceLimit(validItems, itemLimit);
-    }
+        Collections.sort(wrappers);
 
-    /**
-     * 执行实体限制
-     */
-    private int enforceLimit(List<Entity> entities, int limit) {
-        if (entities.size() <= limit) return 0;
+        int actualRemovedCount = 0;
+        int removedWeight = 0;
+        List<Location> particleLocs = new ArrayList<>();
 
-        try {
-            if (entities.isEmpty()) {
-                return 0;
-            }
+        int weightToRemove = currentSize - limit;
 
-            long filterStart = System.currentTimeMillis();
+        for (EntityTimeWrapper wrapper : wrappers) {
+            int needed = weightToRemove - removedWeight;
+            if (needed <= 0) break;
 
-            List<Entity> validEntities = new ArrayList<>(entities.size());
-            List<Entity> removableEntities = new ArrayList<>();
+            Entity entity = wrapper.entity;
+            if (entity.isValid()) {
+                boolean fullRemove = true;
 
-            for (Entity entity : entities) {
-                if (entity == null) continue;
+                if (isItem && countItemStackAmount && entity instanceof Item) {
+                    Item itemEntity = (Item) entity;
+                    ItemStack stack = itemEntity.getItemStack();
+                    int amount = stack.getAmount();
 
-                try {
-                    if (IS_FOLIA) {
-                        try {
-                            if (!entity.isValid() || entity.isDead()) continue;
-                        } catch (IllegalStateException e) {
-                            continue;
-                        }
-                    } else {
-                        if (!entity.isValid() || entity.isDead()) continue;
+                    if (amount > needed) {
+                        stack.setAmount(amount - needed);
+                        itemEntity.setItemStack(stack);
+                        removedWeight += needed;
+                        fullRemove = false;
                     }
+                }
 
-                    validEntities.add(entity);
-
-                    if (canRemoveEntityCached(entity)) {
-                        removableEntities.add(entity);
-                    }
-                } catch (Exception e) {
-                    debug("Error checking entity " +
-                            (entity != null ? entity.getType() : "null") + ": " + e.getMessage());
+                if (fullRemove) {
+                    if (particleLocs.size() < 10) particleLocs.add(entity.getLocation());
+                    entity.remove();
+                    actualRemovedCount++;
+                    removedWeight += wrapper.weight;
                 }
             }
-
-            long filterDuration = System.currentTimeMillis() - filterStart;
-            if (filterDuration > 100) {
-                debug(String.format("Entity filtering took %dms for %d entities",
-                        filterDuration, entities.size()));
-            }
-
-            int protectedCount = validEntities.size() - removableEntities.size();
-            debug(String.format("Entity analysis: %d total, %d valid, %d removable, %d protected",
-                    entities.size(), validEntities.size(), removableEntities.size(), protectedCount));
-
-            if (protectedCount >= limit) {
-                debug(String.format("All entities are protected (%d protected, limit %d)",
-                        protectedCount, limit));
-                return 0;
-            }
-
-            int maxRemovable = validEntities.size() - limit;
-            int toRemove = Math.min(maxRemovable, removableEntities.size());
-
-            if (toRemove <= 0) {
-                return 0;
-            }
-
-            long sortStart = System.currentTimeMillis();
-            removableEntities.sort((e1, e2) -> {
-                try {
-                    long time1 = e1.getPersistentDataContainer().getOrDefault(SPAWN_TIME_KEY,
-                            PersistentDataType.LONG, System.currentTimeMillis());
-                    long time2 = e2.getPersistentDataContainer().getOrDefault(SPAWN_TIME_KEY,
-                            PersistentDataType.LONG, System.currentTimeMillis());
-                    return Long.compare(time1, time2);
-                } catch (Exception ex) {
-                    return 0;
-                }
-            });
-
-            long sortDuration = System.currentTimeMillis() - sortStart;
-            if (sortDuration > 50) {
-                debug(String.format("Entity sorting took %dms for %d entities",
-                        sortDuration, removableEntities.size()));
-            }
-
-            List<Location> particleLocations = new ArrayList<>(Math.min(toRemove, 20));
-            int actualRemoved = 0;
-            int failedRemovals = 0;
-
-            long removalStart = System.currentTimeMillis();
-
-            for (int i = 0; i < toRemove; i++) {
-                Entity entity = removableEntities.get(i);
-                try {
-                    if (entity != null && entity.isValid() && !entity.isDead()) {
-                        Location loc = entity.getLocation();
-                        if (loc != null && loc.getWorld() != null && particleLocations.size() < 20) {
-                            particleLocations.add(loc.clone());
-                        }
-
-                        entity.remove();
-                        actualRemoved++;
-                    } else {
-                        failedRemovals++;
-                    }
-                } catch (Exception e) {
-                    debug("Failed to remove entity: " +
-                            (entity != null ? entity.getType() : "null") + " - " + e.getMessage());
-                    failedRemovals++;
-                }
-            }
-
-            long removalDuration = System.currentTimeMillis() - removalStart;
-
-            debug(String.format("Entity removal completed: %d removed, %d failed, took %dms",
-                    actualRemoved, failedRemovals, removalDuration));
-
-            if (!particleLocations.isEmpty()) {
-                spawnRemovalParticles(particleLocations);
-            }
-
-            return actualRemoved;
-
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Error enforcing entity limit", e);
-            return 0;
         }
+
+        if (!particleLocs.isEmpty()) spawnRemovalParticles(particleLocs);
+        debug("Enforced limit: removed entities/amount (" + removedWeight + ")");
+        return (isItem && countItemStackAmount) ? removedWeight : actualRemovedCount;
     }
 
-    /**
-     * 生成移除粒子效果
-     */
-    private void spawnRemovalParticles(List<Location> locations) {
-        if (locations.isEmpty()) return;
+    private static class CacheEntry {
+        final boolean canRemove;
+        final long timestamp;
+        CacheEntry(boolean r) { this.canRemove = r; this.timestamp = System.currentTimeMillis(); }
+    }
 
-        try {
-            int maxParticles = Math.min(locations.size(), 15);
+    private static final long CACHE_TTL = 30000;
 
-            for (int i = 0; i < maxParticles; i++) {
-                Location loc = locations.get(i);
-                if (loc.getWorld() != null) {
-                    loc.getWorld().spawnParticle(Particle.EXPLOSION_NORMAL, loc, 2, 0.3, 0.3, 0.3, 0.01);
-                }
-            }
-        } catch (Exception e) {
-            getLogger().warning("Error spawning removal particles: " + e.getMessage());
+    private boolean canRemoveEntityCached(Entity entity) {
+        if (entity == null || !entity.isValid()) return false;
+
+        int entityId = entity.getEntityId();
+        CacheEntry entry = protectionCache.get(entityId);
+
+        if (entry != null && (System.currentTimeMillis() - entry.timestamp < CACHE_TTL)) {
+            return entry.canRemove;
         }
+
+        boolean result = canRemoveEntity(entity);
+        protectionCache.put(entityId, new CacheEntry(result));
+        return result;
     }
 
-    /**
-     * 检查实体是否可以被移除
-     */
     private boolean canRemoveEntity(Entity entity) {
-        if (entity == null || entity instanceof Player) {
-            return false;
-        }
-
-        try {
-            if (!isEntityValid(entity)) {
-                return false;
-            }
-
-            EntityType entityType = entity.getType();
-
-            if (ignoredTypes.contains(entityType)) {
-                return false;
-            }
-
-            return !isEntityProtected(entity);
-
-        } catch (Exception e) {
-            debug("Error checking entity protection: " + e.getMessage());
-            return false;
-        }
+        if (entity instanceof Player) return false;
+        if (ignoredTypes.contains(entity.getType())) return false;
+        return !isEntityProtected(entity);
     }
 
-    /**
-     * 检查实体是否有效
-     */
-    private boolean isEntityValid(Entity entity) {
-        if (entity == null) return false;
-
-        try {
-            if (IS_FOLIA) {
-                try {
-                    return entity.isValid() && !entity.isDead();
-                } catch (IllegalStateException e) {
-                    return false;
-                }
-            } else {
-                return entity.isValid() && !entity.isDead();
-            }
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * 检查实体是否受保护
-     */
     private boolean isEntityProtected(Entity entity) {
-        if (protectNamedEntities && hasCustomName(entity)) {
-            return true;
+        if (protectNamedEntities) {
+            String name = entity.getCustomName();
+            if (name != null && !name.isEmpty()) return true;
         }
-
         if (entity instanceof LivingEntity) {
             return isLivingEntityProtected((LivingEntity) entity);
         }
-
         return false;
     }
 
-    /**
-     * 检查实体是否有自定义名称
-     */
-    private boolean hasCustomName(Entity entity) {
-        try {
-            String customName = entity.getCustomName();
-            return customName != null && !customName.trim().isEmpty();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
-     * 检查生物实体是否受保护
-     */
     private boolean isLivingEntityProtected(LivingEntity living) {
-        try {
-            if (protectLeashedEntities && living.isLeashed()) {
-                return true;
-            }
+        if (protectLeashedEntities && living.isLeashed()) return true;
+        if (protectBossEntities && living instanceof Boss) return true;
 
-            if (protectTamedAnimals && living instanceof Tameable) {
-                try {
-                    if (((Tameable) living).isTamed()) {
-                        return true;
-                    }
-                } catch (Exception e) {
-                    return false;
-                }
-            }
-
-            if (hasPlayerPassengers(living)) {
-                return true;
-            }
-
-            if (protectBossEntities && living instanceof Boss) {
-                return true;
-            }
-
-            if (protectEquippedEntities && hasSpecialEquipment(living)) {
-                return true;
-            }
-
-            return false;
-        } catch (Exception e) {
-            return true;
+        if (protectTamedAnimals && living instanceof Tameable) {
+            if (((Tameable) living).isTamed()) return true;
         }
+
+        if (protectEquippedEntities && hasSpecialEquipment(living)) return true;
+        return hasPlayerPassengers(living);
     }
 
-    /**
-     * 检查实体是否有特殊装备
-     */
     private boolean hasSpecialEquipment(LivingEntity entity) {
-        try {
-            if (entity.getEquipment() == null) {
-                return false;
-            }
+        EntityEquipment eq = entity.getEquipment();
+        if (eq == null) return false;
+        if (hasItem(eq.getItemInMainHand()) || hasItem(eq.getItemInOffHand())) return true;
+        for (ItemStack armor : eq.getArmorContents()) {
+            if (hasItem(armor)) return true;
+        }
+        return false;
+    }
 
-            EntityEquipment equipment = entity.getEquipment();
+    private boolean hasItem(ItemStack item) {
+        return item != null && item.getType() != Material.AIR;
+    }
 
-            ItemStack mainHand = equipment.getItemInMainHand();
-            ItemStack offHand = equipment.getItemInOffHand();
+    private boolean hasPlayerPassengers(LivingEntity entity) {
+        List<Entity> passengers = entity.getPassengers();
+        if (passengers.isEmpty()) return false;
 
-            if ((mainHand != null && mainHand.getType() != Material.AIR) ||
-                    (offHand != null && offHand.getType() != Material.AIR)) {
-                return true;
-            }
+        for (Entity p : passengers) {
+            if (p instanceof Player) return true;
+            if (p instanceof LivingEntity && hasPlayerPassengers((LivingEntity)p)) return true;
+        }
+        return false;
+    }
 
-            ItemStack[] armor = equipment.getArmorContents();
-            if (armor != null) {
-                for (ItemStack piece : armor) {
-                    if (piece != null && piece.getType() != Material.AIR) {
-                        return true;
-                    }
+    private void processPlayerChunkGroup(Player player, Set<Chunk> globalProcessed) {
+        if (!player.isOnline()) return;
+        Chunk center = player.getLocation().getChunk();
+        World world = center.getWorld();
+
+        List<Chunk> group = new ArrayList<>();
+        int radius = chunkCheckRadius;
+
+        for (int x = -radius; x <= radius; x++) {
+            for (int z = -radius; z <= radius; z++) {
+                if (world.isChunkLoaded(center.getX() + x, center.getZ() + z)) {
+                    Chunk c = world.getChunkAt(center.getX() + x, center.getZ() + z);
+                    if (globalProcessed != null && !globalProcessed.add(c)) continue;
+                    group.add(c);
                 }
             }
+        }
 
-            return false;
-        } catch (Exception e) {
-            debug("Error checking equipment for entity " + entity.getType() + ": " + e.getMessage());
-            return true;
+        if (!group.isEmpty()) processChunkGroupLogic(group);
+    }
+
+    private void processChunkGroupLogic(List<Chunk> chunks) {
+        Map<EntityType, List<Entity>> groupMobs = new HashMap<>();
+        List<Entity> groupItems = new ArrayList<>();
+
+        for (Chunk c : chunks) {
+            for (Entity e : c.getEntities()) {
+                if (e instanceof LivingEntity && !ignoredTypes.contains(e.getType())) {
+                    groupMobs.computeIfAbsent(e.getType(), k -> new ArrayList<>()).add(e);
+                } else if (e instanceof Item && !ignoredItems.contains(((Item)e).getItemStack().getType())) {
+                    groupItems.add(e);
+                }
+            }
+        }
+
+        int removedMobs = 0;
+        for (Map.Entry<EntityType, List<Entity>> entry : groupMobs.entrySet()) {
+            int limit = (int)(getLimitFor(entry.getKey()) * chunkEntityMultiplier);
+            removedMobs += enforceLimit(entry.getValue(), limit, false);
+        }
+
+        int itemLimitGroup = (int)(itemLimit * chunkItemMultiplier);
+        int removedItems = enforceLimit(groupItems, itemLimitGroup, true);
+
+        if (removedMobs + removedItems > 0) {
+            sendGroupCleanupReport(chunks, removedMobs, removedItems);
         }
     }
 
-    /**
-     * 检查实体是否有玩家乘客
-     */
-    private boolean hasPlayerPassengers(LivingEntity entity) {
-        Set<Entity> visited = new HashSet<>();
-        return hasPlayerPassengersInternal(entity, 0, 3, visited);
+    private boolean isChunkValid(Chunk chunk) {
+        return chunk != null && chunk.isLoaded() && chunk.getWorld() != null;
     }
 
-    private boolean hasPlayerPassengersInternal(LivingEntity entity, int currentDepth, int maxDepth, Set<Entity> visited) {
-        if (currentDepth >= maxDepth || entity == null || visited.contains(entity)) {
-            return false;
+    private int getLimitFor(EntityType type) {
+        return customLimits.getOrDefault(type.name(), defaultLimit);
+    }
+
+    private void spawnRemovalParticles(List<Location> locations) {
+        for (Location loc : locations) {
+            if (loc.getWorld() != null) {
+                loc.getWorld().spawnParticle(Particle.EXPLOSION_NORMAL, loc, 1, 0.2, 0.2, 0.2, 0.0);
+            }
         }
+    }
 
-        visited.add(entity);
+    private void sendCleanupReport(Chunk chunk, int rm, int ri, ChunkStats currentStats) {
+        if (cleanupReportScope == NotifyScope.NONE) return;
 
-        try {
-            List<Entity> passengers = entity.getPassengers();
-            if (passengers != null && !passengers.isEmpty()) {
-                for (Entity passenger : passengers) {
-                    if (passenger instanceof Player) {
-                        return true;
-                    }
+        int curMobs = currentStats.mobCounts.values().stream().mapToInt(i->i).sum();
+        int curItems = currentStats.itemCounts.values().stream().mapToInt(i->i).sum();
 
-                    if (passenger instanceof LivingEntity && !visited.contains(passenger)) {
-                        if (hasPlayerPassengersInternal((LivingEntity) passenger, currentDepth + 1, maxDepth, visited)) {
-                            return true;
+        Map<String, String> params = new HashMap<>();
+        params.put("mobs", String.valueOf(rm));
+        params.put("items", String.valueOf(ri));
+        params.put("x", String.valueOf(chunk.getX()));
+        params.put("z", String.valueOf(chunk.getZ()));
+        params.put("world", chunk.getWorld().getName());
+        params.put("current_mobs", String.valueOf(curMobs));
+        params.put("current_items", String.valueOf(curItems));
+
+        String msg = replacePlaceholders(msgCleanupReport, params);
+        if (consoleCleanupReport) {
+            getLogger().info(ChatColor.stripColor(msg));
+        }
+        notifyNearby(chunk, msg, cleanupReportScope, opGlobalCleanupReport);
+    }
+
+    private void sendGroupCleanupReport(List<Chunk> chunks, int rm, int ri) {
+        if (cleanupReportScope == NotifyScope.NONE || chunks.isEmpty()) return;
+        Chunk c = chunks.get(0);
+        Map<String, String> params = new HashMap<>();
+        params.put("mobs", String.valueOf(rm));
+        params.put("items", String.valueOf(ri));
+        params.put("world", c.getWorld().getName());
+        params.put("x", String.valueOf(c.getX()));
+        params.put("z", String.valueOf(c.getZ()));
+
+        String msg = replacePlaceholders(msgGroupCleanupReport, params);
+        if (consoleCleanupReport) {
+            getLogger().info(ChatColor.stripColor(msg));
+        }
+        notifyNearby(c, msg, cleanupReportScope, opGlobalCleanupReport);
+    }
+
+    private void checkChunkStatus(Chunk chunk, ChunkStats stats) {
+        if (overloadWarningScope == NotifyScope.NONE) return;
+        stats.mobCounts.forEach((type, count) -> {
+            int limit = customLimits.getOrDefault(type.name(), defaultLimit);
+            if (count >= limit * thresholdRatio) sendTypeWarning(chunk, type.name(), count, limit);
+        });
+
+        int totalItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
+        if (totalItems >= itemLimit * thresholdRatio) sendTypeWarning(chunk, "Items", totalItems, itemLimit);
+    }
+
+    private void sendTypeWarning(Chunk chunk, String typeName, int current, int limit) {
+        String chunkKey = typeName + ":" + chunk.getWorld().getName() + ":" + chunk.getX() + ":" + chunk.getZ();
+        if (System.currentTimeMillis() - lastNotifyTimes.getOrDefault(chunkKey, 0L) > notifyCooldown * 1000L) {
+            Map<String, String> params = new HashMap<>();
+            params.put("type", typeName);
+            params.put("current", String.valueOf(current));
+            params.put("max", String.valueOf(limit));
+            params.put("chunkX", String.valueOf(chunk.getX()));
+            params.put("chunkZ", String.valueOf(chunk.getZ()));
+            params.put("world", chunk.getWorld().getName());
+            notifyNearby(chunk, replacePlaceholders(msgPreOverload, params), overloadWarningScope, opGlobalOverloadWarning);
+            lastNotifyTimes.put(chunkKey, System.currentTimeMillis());
+        }
+    }
+
+    private void notifyNearby(Chunk chunk, String msg, NotifyScope scope, boolean globalOp) {
+        if (scope == NotifyScope.NONE) return;
+
+        Location center = chunk.getBlock(8, 64, 8).getLocation();
+        double rSq = notificationRadius * notificationRadius;
+        World chunkWorld = chunk.getWorld();
+
+        for (Player p : getServer().getOnlinePlayers()) {
+            boolean isOp = p.hasPermission("chunklimiter.notify");
+            boolean sent = false;
+
+            if (isOp && globalOp) {
+                p.sendMessage(msg);
+                sent = true;
+            }
+
+            if (!sent) {
+                if (p.getWorld().equals(chunkWorld)) {
+                    if (p.getLocation().distanceSquared(center) <= rSq) {
+                        if (scope == NotifyScope.ALL || (scope == NotifyScope.OP && isOp)) {
+                            p.sendMessage(msg);
                         }
                     }
                 }
             }
-
-            if (currentDepth < maxDepth - 1) {
-                Entity vehicle = entity.getVehicle();
-                if (vehicle instanceof LivingEntity && !visited.contains(vehicle)) {
-                    return hasPlayerPassengersInternal((LivingEntity) vehicle, currentDepth + 1, maxDepth, visited);
-                }
-            }
-
-            return false;
-        } catch (Exception e) {
-            debug("Error checking passengers at depth " + currentDepth + ": " + e.getMessage());
-            return true;
         }
     }
 
-    /**
-     * 发送清理报告
-     */
-    private void sendCleanupReport(Chunk chunk, int removedMobs, int removedItems) {
-        if (removedMobs + removedItems == 0) return;
-
-        World world = chunk.getWorld();
-        if (world == null) {
-            getLogger().warning("Cannot send cleanup report for chunk with null world");
-            return;
-        }
-
-        int currentMobs = 0;
-        int currentItems = 0;
-
-        if (enableNotifications) {
-            ChunkStats stats = collectChunkStats(chunk);
-            currentMobs = stats.mobCounts.values().stream().mapToInt(Integer::intValue).sum();
-            currentItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
-        }
-
-        Map<String, String> params = new HashMap<>();
-        params.put("mobs", String.valueOf(removedMobs));
-        params.put("items", String.valueOf(removedItems));
-        params.put("x", String.valueOf(chunk.getX()));
-        params.put("z", String.valueOf(chunk.getZ()));
-        params.put("world", world.getName());
-        params.put("current_mobs", String.valueOf(currentMobs));
-        params.put("current_items", String.valueOf(currentItems));
-
-        if (enableNotifications) {
-            String message = replacePlaceholders(msgCleanupReport, params);
-            getLogger().info(ChatColor.stripColor(message));
-
-            Location chunkCenter = new Location(
-                    world,
-                    chunk.getX() * 16 + 8,
-                    world.getHighestBlockYAt(chunk.getX() * 16 + 8, chunk.getZ() * 16 + 8),
-                    chunk.getZ() * 16 + 8
-            );
-
-            sendMessageToNearbyPlayers(chunkCenter, message, 128);
-        }
-    }
-
-    /**
-     * 替换消息中的占位符
-     */
-    private String replacePlaceholders(String template, Map<String, String> replacements) {
+    private String replacePlaceholders(String template, Map<String, String> params) {
         StringBuffer sb = new StringBuffer();
-        Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
-        while (matcher.find()) {
-            String key = matcher.group(1);
-            String replacement = replacements.getOrDefault(key, matcher.group());
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        Matcher m = PLACEHOLDER_PATTERN.matcher(template);
+        while (m.find()) {
+            String val = params.get(m.group(1));
+            m.appendReplacement(sb, val != null ? Matcher.quoteReplacement(val) : m.group());
         }
-        matcher.appendTail(sb);
+        m.appendTail(sb);
         return sb.toString();
     }
 
-    /**
-     * 收集区块统计信息（带缓存）
-     */
-    private ChunkStats collectChunkStats(Chunk chunk) {
-        String chunkKey = chunk.getWorld().getName() + ":" + chunk.getX() + ":" + chunk.getZ();
-
-        // 快速获取当前实体数量
-        Entity[] entities = chunk.getEntities();
-        int currentCount = entities.length;
-
-        // 检查缓存
-        CachedChunkStats cached = chunkStatsCache.get(chunkKey);
-        if (cached != null && cached.isValid(currentCount)) {
-            debug("Using cached stats for chunk " + chunkKey);
-            return cached.stats;
-        }
-
-        // 重新计算
-        ChunkStats stats = new ChunkStats();
-
-        for (Entity entity : entities) {
-            if (entity instanceof Player) continue;
-
-            if (entity instanceof LivingEntity && !ignoredTypes.contains(entity.getType())) {
-                stats.mobCounts.merge(entity.getType(), 1, Integer::sum);
-            } else if (entity instanceof Item) {
-                ItemStack stack = ((Item) entity).getItemStack();
-                if (stack != null && stack.getType() != Material.AIR && !ignoredItems.contains(stack.getType())) {
-                    stats.itemCounts.merge(stack.getType(), 1, Integer::sum);
-                }
-            }
-        }
-
-        // 更新缓存
-        chunkStatsCache.put(chunkKey, new CachedChunkStats(stats, currentCount));
-
-        // 限制缓存大小
-        if (chunkStatsCache.size() > 100) {
-            cleanOldestStatsCache();
-        }
-
-        return stats;
-    }
-
-    /**
-     * 清理最旧的统计缓存
-     */
     private void cleanOldestStatsCache() {
-        try {
-            List<Map.Entry<String, CachedChunkStats>> entries = new ArrayList<>(chunkStatsCache.entrySet());
-
-            // 按时间戳排序
-            entries.sort((e1, e2) -> Long.compare(e1.getValue().timestamp, e2.getValue().timestamp));
-
-            // 保留最新的 50 个
-            int toRemove = entries.size() - 50;
-            for (int i = 0; i < toRemove && i < entries.size(); i++) {
-                chunkStatsCache.remove(entries.get(i).getKey());
-            }
-
-            debug("Cleaned " + toRemove + " oldest stats cache entries");
-        } catch (Exception e) {
-            debug("Error cleaning stats cache: " + e.getMessage());
-            chunkStatsCache.clear();
-        }
+        chunkStatsCache.clear();
     }
 
-    /**
-     * 区块统计数据类
-     */
+    private void setupMaintenanceTask() {
+        Runnable task = () -> {
+            cleanupCache();
+            cleanupStats();
+        };
+
+        if (IS_FOLIA) getServer().getGlobalRegionScheduler().runAtFixedRate(this, t -> task.run(), 1200, 1200);
+        else getServer().getScheduler().runTaskTimerAsynchronously(this, task, 1200, 1200);
+    }
+
+    private void cleanupCache() {
+        long expire = System.currentTimeMillis() - CACHE_TTL;
+        protectionCache.entrySet().removeIf(e -> e.getValue().timestamp < expire);
+
+        long notifyExpire = System.currentTimeMillis() - (notifyCooldown * 2000L);
+        lastNotifyTimes.entrySet().removeIf(e -> e.getValue() < notifyExpire);
+    }
+
+    private void cleanupStats() {
+        if (performanceStats.size() > 15) performanceStats.clear();
+    }
+
     private static class ChunkStats {
         final Map<EntityType, Integer> mobCounts = new HashMap<>();
         final Map<Material, Integer> itemCounts = new HashMap<>();
     }
 
-    /**
-     * 检查区块状态
-     */
-    private void checkChunkStatus(Chunk chunk) {
-        if (!isChunkValid(chunk)) return;
+    private static class ProtectionStats {
+        int namedCount = 0;
+        int leashedCount = 0;
+        int tamedCount = 0;
+        int equippedCount = 0;
+        int bossCount = 0;
+        int totalProtected = 0;
 
-        ChunkStats stats = collectChunkStats(chunk);
-
-        stats.mobCounts.forEach((type, count) -> {
-            int limit = customLimits.getOrDefault(type.name(), defaultLimit);
-            if (count >= limit * thresholdRatio) {
-                sendTypeWarning(chunk, type.name(), count, limit);
+        void addEntity(Entity entity, ChunkEntityLimiter plugin) {
+            boolean isProtected = false;
+            if (plugin.protectNamedEntities && entity.getCustomName() != null && !entity.getCustomName().trim().isEmpty()) {
+                namedCount++;
+                isProtected = true;
             }
-        });
 
-        int totalItems = stats.itemCounts.values().stream().mapToInt(Integer::intValue).sum();
-        if (totalItems >= itemLimit * thresholdRatio) {
-            sendTypeWarning(chunk, "Items", totalItems, itemLimit);
-        }
-    }
+            if (entity instanceof LivingEntity) {
+                LivingEntity living = (LivingEntity) entity;
+                if (plugin.protectLeashedEntities && living.isLeashed()) {
+                    leashedCount++;
+                    isProtected = true;
+                }
+                if (plugin.protectTamedAnimals && living instanceof Tameable && ((Tameable) living).isTamed()) {
+                    tamedCount++;
+                    isProtected = true;
+                }
+                if (plugin.protectEquippedEntities && plugin.hasSpecialEquipment(living)) {
+                    equippedCount++;
+                    isProtected = true;
+                }
+                if (plugin.protectBossEntities && living instanceof Boss) {
+                    bossCount++;
+                    isProtected = true;
+                }
+            }
 
-    /**
-     * 发送类型警告
-     */
-    private void sendTypeWarning(Chunk chunk, String typeName, int current, int limit) {
-        if (!isChunkValid(chunk)) {
-            return;
-        }
-
-        World world = chunk.getWorld();
-        String worldName = world.getName();
-        int chunkX = chunk.getX();
-        int chunkZ = chunk.getZ();
-        String chunkKey = typeName + ":" + worldName + ":" + chunkX + ":" + chunkZ;
-
-        if (System.currentTimeMillis() - lastNotifyTimes.getOrDefault(chunkKey, 0L) > notifyCooldown * 1000L) {
-            String message = msgPreOverload
-                    .replace("%type%", typeName)
-                    .replace("%current%", String.valueOf(current))
-                    .replace("%max%", String.valueOf(limit))
-                    .replace("%chunkX%", String.valueOf(chunkX))
-                    .replace("%chunkZ%", String.valueOf(chunkZ))
-                    .replace("%world%", worldName);
-
-            Location chunkCenter = new Location(
-                    world,
-                    chunkX * 16 + 8,
-                    world.getHighestBlockYAt(chunkX * 16 + 8, chunkZ * 16 + 8),
-                    chunkZ * 16 + 8
-            );
-
-            sendMessageToNearbyPlayers(chunkCenter, message, 128);
-
-            lastNotifyTimes.put(chunkKey, System.currentTimeMillis());
-            if (lastNotifyTimes.size() > 1000) {
-                lastNotifyTimes.keySet().removeIf(key ->
-                        System.currentTimeMillis() - lastNotifyTimes.get(key) > notifyCooldown * 2000L
-                );
+            if (isProtected) {
+                totalProtected++;
             }
         }
     }
@@ -2008,8 +1045,7 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         if (!cmd.getName().equalsIgnoreCase("chunklimit")) return false;
 
         if (args.length == 0 || args[0].equalsIgnoreCase("help")) {
-            sendHelp(sender);
-            return true;
+            sendHelp(sender); return true;
         }
 
         switch (args[0].toLowerCase()) {
@@ -2035,7 +1071,46 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                 return true;
 
             case "notify":
-                handleNotifyCommand(sender, args);
+                if (!sender.hasPermission("chunklimiter.notify")) {
+                    sender.sendMessage(msgNoPermission);
+                    return true;
+                }
+
+                if (args.length == 1) {
+                    Map<String, String> params = new HashMap<>();
+                    params.put("report", cleanupReportScope.name());
+                    params.put("warning", overloadWarningScope.name());
+                    sender.sendMessage(replacePlaceholders(msgNotifyStatus, params));
+                    return true;
+                }
+
+                if (args.length >= 3) {
+                    String type = args[1].toLowerCase();
+                    String scopeStr = args[2].toUpperCase();
+                    NotifyScope newScope;
+                    try {
+                        newScope = NotifyScope.valueOf(scopeStr);
+                    } catch (IllegalArgumentException e) {
+                        sender.sendMessage(ChatColor.RED + "Invalid scope. Use: NONE, OP, ALL");
+                        return true;
+                    }
+
+                    if (type.equals("report")) {
+                        cleanupReportScope = newScope;
+                    } else if (type.equals("warning")) {
+                        overloadWarningScope = newScope;
+                    } else {
+                        sender.sendMessage(ChatColor.RED + "Usage: /cl notify [report|warning] [none|op|all]");
+                        return true;
+                    }
+
+                    Map<String, String> params = new HashMap<>();
+                    params.put("type", type);
+                    params.put("scope", newScope.name());
+                    sender.sendMessage(replacePlaceholders(msgScopeSet, params));
+                } else {
+                    sender.sendMessage(ChatColor.RED + "Usage: /cl notify [report|warning] [none|op|all]");
+                }
                 return true;
 
             case "performance":
@@ -2043,20 +1118,22 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
                     sender.sendMessage(msgNoPermission);
                     return true;
                 }
-
                 if (args.length > 1 && args[1].equalsIgnoreCase("reset")) {
                     performanceStats.clear();
-                    lastPerformanceValues.clear();
                     sender.sendMessage(msgPerfReset);
                     return true;
                 }
+                sender.sendMessage(msgPerfHeader);
+                performanceStats.forEach((key, stats) -> {
+                    String displayName = key;
+                    if (key.equals("Phase1-SingleChunks")) displayName = msgPerfPhase1;
+                    else if (key.equals("Phase2-GroupChunks")) displayName = msgPerfPhase2;
+                    else if (key.equals("Total-Cleanup")) displayName = msgPerfTotal;
+                    else if (key.equals("Entity-Classification")) displayName = msgPerfClassify;
+                    else if (key.equals("Cleanup-Enforcement")) displayName = msgPerfCleanup;
 
-                if (!performanceMonitoring) {
-                    sender.sendMessage(msgPerfDisabled);
-                    return true;
-                }
-
-                showPerformanceStats(sender);
+                    sender.sendMessage(ChatColor.GRAY + displayName + ": " + ChatColor.GREEN + String.format("%.2f", stats.getAverage()) + "ms");
+                });
                 return true;
 
             default:
@@ -2065,430 +1142,14 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         }
     }
 
-    /**
-     * 显示性能统计
-     */
-    private void showPerformanceStats(CommandSender sender) {
-        if (performanceStats.isEmpty()) {
-            sender.sendMessage(msgPerfNoData);
-            return;
-        }
-
-        sender.sendMessage(msgPerfHeader);
-
-        Map<String, String> statDisplayNames = new LinkedHashMap<>();
-        statDisplayNames.put("Phase1-SingleChunks", msgPerfPhase1);
-        statDisplayNames.put("Phase2-GroupChunks", msgPerfPhase2);
-        statDisplayNames.put("Total-Cleanup", msgPerfTotal);
-        statDisplayNames.put("Entity-Classification", msgPerfClassify);
-        statDisplayNames.put("Cleanup-Enforcement", msgPerfCleanup);
-
-        for (Map.Entry<String, String> entry : statDisplayNames.entrySet()) {
-            String statKey = entry.getKey();
-            String displayName = entry.getValue();
-
-            PerformanceStats stats = performanceStats.get(statKey);
-
-            if (stats != null && stats.getCount() > 0) {
-                String message = String.format(
-                        "&7%s: &a%dms &7(%s: &a%.1fms &7| %s: &b%d&7)",
-                        displayName,
-                        stats.getLastValue(),
-                        currentLang.equals("zh") ? "平均" : "avg",
-                        stats.getAverage(),
-                        currentLang.equals("zh") ? "次数" : "count",
-                        stats.getCount()
-                );
-                sender.sendMessage(parseMessage(message));
-            }
-        }
-    }
-
-    /**
-     * 缓存条目类
-     */
-    private static class CacheEntry {
-        final boolean canRemove;
-        final long timestamp;
-
-        CacheEntry(boolean canRemove) {
-            this.canRemove = canRemove;
-            this.timestamp = System.currentTimeMillis();
-        }
-
-        boolean isExpired(long maxAge) {
-            return System.currentTimeMillis() - timestamp > maxAge;
-        }
-    }
-
-    private final Map<Entity, CacheEntry> protectionCache = Collections.synchronizedMap(new WeakHashMap<>());
-    private static final long CACHE_EXPIRE_TIME = 30000;
-    private static final int MAX_PROTECTION_CACHE_SIZE = 500;
-
-    /**
-     * 使用缓存检查实体是否可移除（带大小限制）
-     */
-    private boolean canRemoveEntityCached(Entity entity) {
-        if (entity == null) {
-            return false;
-        }
-
-        if (!isEntityValid(entity)) {
-            protectionCache.remove(entity);
-            return false;
-        }
-
-        CacheEntry entry = protectionCache.get(entity);
-
-        if (entry != null && !entry.isExpired(CACHE_EXPIRE_TIME)) {
-            return entry.canRemove;
-        }
-
-        try {
-            boolean result = canRemoveEntity(entity);
-
-            if (isEntityValid(entity)) {
-                // 缓存大小限制
-                if (protectionCache.size() >= MAX_PROTECTION_CACHE_SIZE) {
-                    cleanOldestCacheEntries();
-                }
-                protectionCache.put(entity, new CacheEntry(result));
-            }
-
-            return result;
-        } catch (Exception e) {
-            debug("Error in cached entity check: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * 清理最旧的缓存条目
-     */
-    private void cleanOldestCacheEntries() {
-        try {
-            List<Map.Entry<Entity, CacheEntry>> entries = new ArrayList<>(protectionCache.entrySet());
-
-            // 按时间戳排序
-            entries.sort((e1, e2) -> Long.compare(e1.getValue().timestamp, e2.getValue().timestamp));
-
-            // 移除最旧的 25%
-            int toRemove = Math.max(1, entries.size() / 4);
-            for (int i = 0; i < toRemove && i < entries.size(); i++) {
-                protectionCache.remove(entries.get(i).getKey());
-            }
-
-            debug("Cleaned " + toRemove + " oldest cache entries");
-        } catch (Exception e) {
-            debug("Error cleaning cache entries: " + e.getMessage());
-            // 出错时清空缓存
-            protectionCache.clear();
-        }
-    }
-
-    /**
-     * 设置维护任务
-     */
-    private void setupMaintenanceTask() {
-        Runnable maintenance = () -> {
-            try {
-                long maintenanceStart = System.currentTimeMillis();
-
-                if (IS_FOLIA) {
-                    performMaintenanceFolia();
-                } else {
-                    performMaintenance();
-                }
-
-                long duration = System.currentTimeMillis() - maintenanceStart;
-                if (duration > 200) {
-                    getLogger().warning("Maintenance took " + duration + "ms, consider optimization");
-                }
-
-            } catch (Exception e) {
-                getLogger().log(Level.WARNING, "Error during maintenance", e);
-            }
-        };
-
-        long interval = 2400L;
-        if (IS_FOLIA) {
-            getServer().getGlobalRegionScheduler().runAtFixedRate(this, t -> maintenance.run(), interval, interval);
-        } else {
-            getServer().getScheduler().runTaskTimerAsynchronously(this, maintenance, interval, interval);
-        }
-    }
-
-    /**
-     * Folia 环境下的维护
-     */
-    private void performMaintenanceFolia() {
-        long stepStart = System.currentTimeMillis();
-
-        cleanupNotificationRecords();
-        checkMaintenanceTime(stepStart, "notification cleanup");
-
-        stepStart = System.currentTimeMillis();
-        cleanupProtectionCacheFolia();
-        checkMaintenanceTime(stepStart, "protection cache cleanup");
-
-        stepStart = System.currentTimeMillis();
-        cleanupStatistics();
-        checkMaintenanceTime(stepStart, "statistics cleanup");
-    }
-
-    /**
-     * 标准环境下的维护
-     */
-    private void performMaintenance() {
-        long stepStart = System.currentTimeMillis();
-
-        cleanupNotificationRecords();
-        checkMaintenanceTime(stepStart, "notification cleanup");
-
-        stepStart = System.currentTimeMillis();
-        cleanupProtectionCache();
-        checkMaintenanceTime(stepStart, "protection cache cleanup");
-
-        stepStart = System.currentTimeMillis();
-        cleanupStatistics();
-        checkMaintenanceTime(stepStart, "statistics cleanup");
-    }
-
-    /**
-     * 检查维护步骤耗时
-     */
-    private void checkMaintenanceTime(long stepStart, String stepName) {
-        long duration = System.currentTimeMillis() - stepStart;
-        if (duration > 50) {
-            debug(stepName + " took " + duration + "ms");
-        }
-    }
-
-    /**
-     * 清理通知记录
-     */
-    private void cleanupNotificationRecords() {
-        int initialSize = lastNotifyTimes.size();
-        if (initialSize <= 50) return;
-
-        long expireTime = System.currentTimeMillis() - (notifyCooldown * 2000L);
-
-        List<String> toRemove = new ArrayList<>();
-        int batchSize = Math.min(100, initialSize / 4);
-
-        try {
-            Iterator<Map.Entry<String, Long>> iterator = lastNotifyTimes.entrySet().iterator();
-            int processed = 0;
-
-            while (iterator.hasNext() && processed < batchSize) {
-                Map.Entry<String, Long> entry = iterator.next();
-                if (entry.getValue() < expireTime) {
-                    toRemove.add(entry.getKey());
-                }
-                processed++;
-            }
-
-            for (String key : toRemove) {
-                lastNotifyTimes.remove(key);
-            }
-
-            if (!toRemove.isEmpty()) {
-                debug("Cleaned " + toRemove.size() + " expired notification records (batch size: " + batchSize + ")");
-            }
-
-        } catch (Exception e) {
-            getLogger().warning("Error during notification cleanup: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 清理保护缓存
-     */
-    private void cleanupProtectionCache() {
-        if (protectionCache.size() <= 50) return;
-
-        if (IS_FOLIA) {
-            cleanupProtectionCacheFolia();
-        } else {
-            cleanupProtectionCacheStandard();
-        }
-    }
-
-    /**
-     * 标准环境下清理保护缓存
-     */
-    private void cleanupProtectionCacheStandard() {
-        protectionCache.entrySet().removeIf(entry -> {
-            Entity entity = entry.getKey();
-            CacheEntry cache = entry.getValue();
-
-            return entity == null ||
-                    !isEntityValid(entity) ||
-                    cache.isExpired(CACHE_EXPIRE_TIME);
-        });
-    }
-
-    /**
-     * Folia 环境下清理保护缓存
-     */
-    private void cleanupProtectionCacheFolia() {
-        try {
-            long expireTime = System.currentTimeMillis() - CACHE_EXPIRE_TIME;
-
-            // 只清理过期的缓存条目
-            protectionCache.entrySet().removeIf(entry -> {
-                CacheEntry cache = entry.getValue();
-                return cache != null && cache.timestamp < expireTime;
-            });
-
-            // 如果缓存仍然过大，清理最旧的条目
-            if (protectionCache.size() > MAX_PROTECTION_CACHE_SIZE) {
-                cleanOldestCacheEntries();
-            }
-        } catch (Exception e) {
-            getLogger().warning("Error during Folia cache cleanup: " + e.getMessage());
-            protectionCache.clear();
-        }
-    }
-
-    /**
-     * 清理统计数据
-     */
-    private void cleanupStatistics() {
-        if (removalStats.size() > 20) {
-            try {
-                Map<EntityType, Long> topStats = removalStats.entrySet().parallelStream()
-                        .filter(entry -> entry.getValue() > 0)
-                        .sorted(Map.Entry.<EntityType, Long>comparingByValue().reversed())
-                        .limit(15)
-                        .collect(Collectors.toMap(
-                                Map.Entry::getKey,
-                                Map.Entry::getValue,
-                                (e1, e2) -> e1,
-                                LinkedHashMap::new
-                        ));
-
-                removalStats.clear();
-                removalStats.putAll(topStats);
-
-            } catch (Exception e) {
-                getLogger().warning("Error trimming removal statistics: " + e.getMessage());
-                removalStats.clear();
-            }
-        }
-
-        if (performanceStats.size() > 15) {
-            Set<String> coreStats = new HashSet<>();
-            coreStats.add("Phase1-SingleChunks");
-            coreStats.add("Phase2-GroupChunks");
-            coreStats.add("Total-Cleanup");
-            coreStats.add("Entity-Classification");
-            coreStats.add("Cleanup-Enforcement");
-
-            performanceStats.entrySet().removeIf(entry ->
-                    !coreStats.contains(entry.getKey()) && entry.getValue().getCount() < 5
-            );
-        }
-    }
-
-    /**
-     * 发送帮助信息
-     */
-    private void sendHelp(CommandSender sender) {
-        String langPrefix = currentLang.equals("zh") ? "&6用法：" : "&6Usage:";
-        String[] helpMessages = currentLang.equals("zh") ?
-                new String[] {
-                        "&a/chunklimiter reload &7- 重载配置",
-                        "&a/chunklimiter notify [on|off] &7- 切换通知状态",
-                        "&a/chunklimiter stats &7- 查看当前区块统计",
-                        "&a/chunklimiter performance &7- 查看性能监控",
-                        "&a/chunklimiter performance reset &7- 重置性能监控"
-                } :
-                new String[] {
-                        "&a/chunklimiter reload &7- Reload config",
-                        "&a/chunklimiter notify [on|off] &7- Toggle notifications",
-                        "&a/chunklimiter stats &7- Show chunk stats",
-                        "&a/chunklimiter performance &7- View performance monitoring",
-                        "&a/chunklimiter performance reset &7- Reset performance monitoring"
-                };
-
-        sender.sendMessage(parseMessage(langPrefix));
-        for (String msg : helpMessages) {
-            sender.sendMessage(parseMessage(msg));
-        }
-    }
-
-    /**
-     * 保护统计类
-     */
-    private static class ProtectionStats {
-        int namedCount = 0;
-        int leashedCount = 0;
-        int tamedCount = 0;
-        int equippedCount = 0;
-        int bossCount = 0;
-        int totalProtected = 0;
-
-        void addEntity(Entity entity, boolean protectNamed, boolean protectLeashed,
-                       boolean protectTamed, boolean protectEquipped, boolean protectBoss,
-                       ChunkEntityLimiter plugin) {
-            boolean isProtected = false;
-
-            try {
-                if (protectNamed && entity.getCustomName() != null && !entity.getCustomName().trim().isEmpty()) {
-                    namedCount++;
-                    isProtected = true;
-                }
-
-                if (entity instanceof LivingEntity) {
-                    LivingEntity living = (LivingEntity) entity;
-
-                    if (protectLeashed && living.isLeashed()) {
-                        leashedCount++;
-                        isProtected = true;
-                    }
-
-                    if (protectTamed && living instanceof Tameable && ((Tameable) living).isTamed()) {
-                        tamedCount++;
-                        isProtected = true;
-                    }
-
-                    if (protectEquipped && plugin.hasSpecialEquipment(living)) {
-                        equippedCount++;
-                        isProtected = true;
-                    }
-
-                    if (protectBoss && living instanceof Boss) {
-                        bossCount++;
-                        isProtected = true;
-                    }
-                }
-
-                if (isProtected) {
-                    totalProtected++;
-                }
-            } catch (Exception e) {
-                // 忽略统计错误
-            }
-        }
-    }
-
-    /**
-     * 显示区块统计
-     */
     private void showChunkStats(Player player) {
         Chunk chunk = player.getLocation().getChunk();
-
         showSingleChunkStats(player, chunk);
-
         if (chunkCheckRadius > 0) {
             showGroupChunkStats(player);
         }
     }
 
-    /**
-     * 显示区块组统计
-     */
     private void showGroupChunkStats(Player player) {
         Location loc = player.getLocation();
         Chunk center = loc.getChunk();
@@ -2498,13 +1159,8 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         List<Chunk> chunkGroup = new ArrayList<>();
         for (int x = -chunkCheckRadius; x <= chunkCheckRadius; x++) {
             for (int z = -chunkCheckRadius; z <= chunkCheckRadius; z++) {
-                try {
-                    Chunk chunk = world.getChunkAt(center.getX() + x, center.getZ() + z);
-                    if (chunk.isLoaded()) {
-                        chunkGroup.add(chunk);
-                    }
-                } catch (Exception e) {
-                    getLogger().warning("Failed to get chunk at " + (center.getX() + x) + "," + (center.getZ() + z));
+                if (world.isChunkLoaded(center.getX() + x, center.getZ() + z)) {
+                    chunkGroup.add(world.getChunkAt(center.getX() + x, center.getZ() + z));
                 }
             }
         }
@@ -2515,72 +1171,52 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         int ignoredItemCount = 0;
 
         for (Chunk chunk : chunkGroup) {
-            try {
-                for (Entity entity : chunk.getEntities()) {
-                    if (entity instanceof Player) continue;
-
-                    try {
-                        if (entity instanceof LivingEntity) {
-                            EntityType type = entity.getType();
-                            totalMobs.merge(type, 1, Integer::sum);
-                            if (ignoredTypes.contains(type)) {
-                                ignoredMobCounts.merge(type, 1, Integer::sum);
-                            }
-                            protectionStats.addEntity(entity, protectNamedEntities, protectLeashedEntities,
-                                    protectTamedAnimals, protectEquippedEntities,
-                                    protectBossEntities, this);
-                        } else if (entity instanceof Item) {
-                            Item item = (Item) entity;
-                            ItemStack itemStack = item.getItemStack();
-                            if (itemStack != null) {
-                                Material type = itemStack.getType();
-                                if (ignoredItems.contains(type)) {
-                                    ignoredItemCount++;
-                                } else {
-                                    totalItemCount++;
-                                }
-                            }
+            for (Entity entity : chunk.getEntities()) {
+                if (entity instanceof Player) continue;
+                if (entity instanceof LivingEntity) {
+                    EntityType type = entity.getType();
+                    totalMobs.merge(type, 1, Integer::sum);
+                    if (ignoredTypes.contains(type)) {
+                        ignoredMobCounts.merge(type, 1, Integer::sum);
+                    }
+                    protectionStats.addEntity(entity, this);
+                } else if (entity instanceof Item) {
+                    Item item = (Item) entity;
+                    ItemStack itemStack = item.getItemStack();
+                    if (itemStack != null) {
+                        Material type = itemStack.getType();
+                        if (ignoredItems.contains(type)) ignoredItemCount++;
+                        else {
+                            int amount = countItemStackAmount ? itemStack.getAmount() : 1;
+                            totalItemCount += amount;
                         }
-                    } catch (Exception e) {
-                        debug("Error processing entity in stats: " + e.getMessage());
                     }
                 }
-            } catch (Exception e) {
-                getLogger().warning("Error processing chunk in stats: " + chunk.getX() + "," + chunk.getZ());
             }
         }
 
         String header = currentLang.equals("zh") ?
                 String.format("&6==== 区块组合统计 (半径: %d, 共%d个区块) ====", chunkCheckRadius, chunkGroup.size()) :
                 String.format("&6==== Group Chunk Stats(Radius: %d, %d chunks) ====", chunkCheckRadius, chunkGroup.size());
-
         player.sendMessage(parseMessage(header));
 
         if (!totalMobs.isEmpty()) {
             player.sendMessage(parseMessage(msgMobStats));
-
-            totalMobs.entrySet().stream()
-                    .filter(entry -> !ignoredTypes.contains(entry.getKey()))
-                    .forEach(entry -> {
-                        EntityType type = entry.getKey();
-                        int count = entry.getValue();
-                        int singleLimit = getLimitFor(type);
-                        int groupLimit = (int) Math.ceil(singleLimit * chunkEntityMultiplier);
-
-                        Map<String, String> params = new HashMap<>();
-                        params.put("type", type.name());
-                        params.put("count", String.valueOf(count));
-                        params.put("limit", String.valueOf(groupLimit));
-
-                        player.sendMessage(replacePlaceholders(msgMobStatsLine, params));
-                    });
-
+            totalMobs.entrySet().stream().filter(e -> !ignoredTypes.contains(e.getKey())).forEach(entry -> {
+                EntityType type = entry.getKey();
+                int count = entry.getValue();
+                int groupLimit = (int) Math.ceil(getLimitFor(type) * chunkEntityMultiplier);
+                Map<String, String> params = new HashMap<>();
+                params.put("type", type.name());
+                params.put("count", String.valueOf(count));
+                params.put("limit", String.valueOf(groupLimit));
+                player.sendMessage(replacePlaceholders(msgMobStatsLine, params));
+            });
             ignoredMobCounts.forEach((type, count) -> {
                 Map<String, String> params = new HashMap<>();
                 params.put("type", type.name() + " (ignored)");
                 params.put("count", String.valueOf(count));
                 params.put("limit", currentLang.equals("zh") ? "无限制" : "Unlimited");
-
                 player.sendMessage(replacePlaceholders(msgMobStatsLine, params));
             });
         }
@@ -2588,60 +1224,16 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         player.sendMessage(parseMessage(msgItemStats));
         if (totalItemCount > 0) {
             int groupItemLimit = (int) Math.ceil(itemLimit * chunkItemMultiplier);
-
             Map<String, String> params = new HashMap<>();
             params.put("type", "Items");
             params.put("count", String.valueOf(totalItemCount));
             params.put("limit", String.valueOf(groupItemLimit));
-
-            player.sendMessage(replacePlaceholders(msgItemStatsLine, params));
-        }
-
-        if (ignoredItemCount > 0) {
-            Map<String, String> params = new HashMap<>();
-            params.put("type", "Ignored Items");
-            params.put("count", String.valueOf(ignoredItemCount));
-            params.put("limit", currentLang.equals("zh") ? "无限制" : "Unlimited");
-
             player.sendMessage(replacePlaceholders(msgItemStatsLine, params));
         }
 
         if (protectionStats.totalProtected > 0) {
             player.sendMessage(msgProtectedStats);
-
-            if (protectionStats.namedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.namedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedNamed, params));
-            }
-
-            if (protectionStats.leashedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.leashedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedLeashed, params));
-            }
-
-            if (protectionStats.tamedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.tamedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedTamed, params));
-            }
-
-            if (protectionStats.equippedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.equippedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedEquipped, params));
-            }
-
-            if (protectionStats.bossCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.bossCount));
-                player.sendMessage(replacePlaceholders(msgProtectedBoss, params));
-            }
-
-            Map<String, String> params = new HashMap<>();
-            params.put("count", String.valueOf(protectionStats.totalProtected));
-            player.sendMessage(replacePlaceholders(msgProtectedTotal, params));
+            sendProtectionStats(player, protectionStats);
         }
 
         int totalMobCount = totalMobs.values().stream().mapToInt(Integer::intValue).sum();
@@ -2651,31 +1243,30 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         player.sendMessage(replacePlaceholders(msgTotalStats, totalParams));
     }
 
-    /**
-     * 显示单个区块统计
-     */
     private void showSingleChunkStats(Player player, Chunk chunk) {
         World world = chunk.getWorld();
         ProtectionStats protectionStats = new ProtectionStats();
 
         Map<EntityType, Long> allMobCounts = Arrays.stream(chunk.getEntities())
                 .filter(e -> e instanceof LivingEntity && !(e instanceof Player))
-                .peek(e -> protectionStats.addEntity(e, protectNamedEntities, protectLeashedEntities,
-                        protectTamedAnimals, protectEquippedEntities,
-                        protectBossEntities, this))
-                .collect(Collectors.groupingBy(
-                        Entity::getType,
-                        Collectors.counting()
-                ));
+                .peek(e -> protectionStats.addEntity(e, this))
+                .collect(Collectors.groupingBy(Entity::getType, Collectors.counting()));
 
-        Map<Material, Long> allItemCounts = Arrays.stream(chunk.getEntities())
-                .filter(e -> e instanceof Item)
-                .map(e -> ((Item) e).getItemStack().getType())
-                .filter(type -> type != Material.AIR)
-                .collect(Collectors.groupingBy(
-                        material -> material,
-                        Collectors.counting()
-                ));
+        long totalItems = 0;
+        Map<Material, Long> allItemCounts = new HashMap<>();
+
+        for (Entity e : chunk.getEntities()) {
+            if (e instanceof Item) {
+                ItemStack stack = ((Item) e).getItemStack();
+                if (stack != null && stack.getType() != Material.AIR) {
+                    long amount = countItemStackAmount ? stack.getAmount() : 1;
+                    allItemCounts.merge(stack.getType(), amount, Long::sum);
+                    if (!ignoredItems.contains(stack.getType())) {
+                        totalItems += amount;
+                    }
+                }
+            }
+        }
 
         Map<String, String> baseParams = new HashMap<>();
         baseParams.put("x", String.valueOf(chunk.getX()));
@@ -2686,85 +1277,36 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
 
         if (!allMobCounts.isEmpty()) {
             player.sendMessage(replacePlaceholders(msgMobStats, baseParams));
-
             allMobCounts.forEach((type, count) -> {
                 boolean isIgnored = ignoredTypes.contains(type);
                 int limit = isIgnored ? -1 : customLimits.getOrDefault(type.name(), defaultLimit);
-
                 Map<String, String> params = new HashMap<>(baseParams);
                 params.put("type", type.name());
                 params.put("count", String.valueOf(count));
-                params.put("limit", isIgnored
-                        ? (currentLang.equals("zh") ? "无限制" : "Unlimited")
-                        : String.valueOf(limit));
-
+                params.put("limit", isIgnored ? (currentLang.equals("zh") ? "无限制" : "Unlimited") : String.valueOf(limit));
                 player.sendMessage(replacePlaceholders(msgMobStatsLine, params));
             });
         }
 
         if (!allItemCounts.isEmpty()) {
             player.sendMessage(replacePlaceholders(msgItemStats, baseParams));
-
             allItemCounts.forEach((material, count) -> {
                 boolean isIgnored = ignoredItems.contains(material);
                 int limit = isIgnored ? -1 : itemLimit;
-
                 Map<String, String> params = new HashMap<>(baseParams);
                 params.put("type", material.name());
                 params.put("count", String.valueOf(count));
-                params.put("limit", isIgnored
-                        ? (currentLang.equals("zh") ? "无限制" : "Unlimited")
-                        : String.valueOf(limit));
-
+                params.put("limit", isIgnored ? (currentLang.equals("zh") ? "无限制" : "Unlimited") : String.valueOf(limit));
                 player.sendMessage(replacePlaceholders(msgItemStatsLine, params));
             });
         }
 
         if (protectionStats.totalProtected > 0) {
             player.sendMessage(msgProtectedStats);
-
-            if (protectionStats.namedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.namedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedNamed, params));
-            }
-
-            if (protectionStats.leashedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.leashedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedLeashed, params));
-            }
-
-            if (protectionStats.tamedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.tamedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedTamed, params));
-            }
-
-            if (protectionStats.equippedCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.equippedCount));
-                player.sendMessage(replacePlaceholders(msgProtectedEquipped, params));
-            }
-
-            if (protectionStats.bossCount > 0) {
-                Map<String, String> params = new HashMap<>();
-                params.put("count", String.valueOf(protectionStats.bossCount));
-                player.sendMessage(replacePlaceholders(msgProtectedBoss, params));
-            }
-
-            Map<String, String> params = new HashMap<>();
-            params.put("count", String.valueOf(protectionStats.totalProtected));
-            player.sendMessage(replacePlaceholders(msgProtectedTotal, params));
+            sendProtectionStats(player, protectionStats);
         }
 
-        long totalMobs = allMobCounts.values().stream()
-                .mapToLong(Long::longValue)
-                .sum();
-
-        long totalItems = allItemCounts.values().stream()
-                .mapToLong(Long::longValue)
-                .sum();
+        long totalMobs = allMobCounts.values().stream().mapToLong(Long::longValue).sum();
 
         Map<String, String> totalParams = new HashMap<>(baseParams);
         totalParams.put("total_mobs", String.valueOf(totalMobs));
@@ -2772,89 +1314,41 @@ public class ChunkEntityLimiter extends JavaPlugin implements Listener {
         player.sendMessage(replacePlaceholders(msgTotalStats, totalParams));
     }
 
-    /**
-     * 处理通知命令
-     */
-    private void handleNotifyCommand(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage(msgPlayerOnly);
-            return;
-        }
+    private void sendProtectionStats(Player player, ProtectionStats stats) {
+        if (stats.namedCount > 0) player.sendMessage(replacePlaceholders(msgProtectedNamed, Collections.singletonMap("count", String.valueOf(stats.namedCount))));
+        if (stats.leashedCount > 0) player.sendMessage(replacePlaceholders(msgProtectedLeashed, Collections.singletonMap("count", String.valueOf(stats.leashedCount))));
+        if (stats.tamedCount > 0) player.sendMessage(replacePlaceholders(msgProtectedTamed, Collections.singletonMap("count", String.valueOf(stats.tamedCount))));
+        if (stats.equippedCount > 0) player.sendMessage(replacePlaceholders(msgProtectedEquipped, Collections.singletonMap("count", String.valueOf(stats.equippedCount))));
+        if (stats.bossCount > 0) player.sendMessage(replacePlaceholders(msgProtectedBoss, Collections.singletonMap("count", String.valueOf(stats.bossCount))));
+        player.sendMessage(replacePlaceholders(msgProtectedTotal, Collections.singletonMap("count", String.valueOf(stats.totalProtected))));
+    }
 
-        Player player = (Player) sender;
-        if (!player.hasPermission("chunklimiter.notify")) {
-            player.sendMessage(msgNoPermission);
-            return;
-        }
-
-        if (args.length == 1) {
-            enableNotifications = !enableNotifications;
-            player.sendMessage(enableNotifications ? msgNotificationEnabled : msgNotificationDisabled);
-        } else {
-            boolean newState = args[1].equalsIgnoreCase("on");
-            enableNotifications = newState;
-            player.sendMessage(newState ? msgNotificationEnabled : msgNotificationDisabled);
-        }
+    private void sendHelp(CommandSender sender) {
+        sender.sendMessage(ChatColor.GOLD + "ChunkLimiter Help:");
+        sender.sendMessage(ChatColor.GREEN + "/cl reload");
+        sender.sendMessage(ChatColor.GREEN + "/cl stats");
+        sender.sendMessage(ChatColor.GREEN + "/cl notify [report|warning] [none|op|all]");
+        sender.sendMessage(ChatColor.GREEN + "/cl performance [reset]");
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
-        if (args.length == 1) {
-            List<String> completions = Arrays.asList("reload", "stats", "notify", "help", "performance");
-            return completions.stream()
-                    .filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase()))
-                    .collect(Collectors.toList());
-        }
-
-        if (args.length == 2) {
-            switch (args[0].toLowerCase()) {
-                case "notify":
-                    return Arrays.asList("on", "off");
-                case "performance":
-                    return Arrays.asList("reset");
-            }
-        }
-
+        if (args.length == 1) return Arrays.asList("reload", "stats", "notify", "help", "performance");
+        if (args.length == 2 && args[0].equalsIgnoreCase("notify")) return Arrays.asList("report", "warning");
+        if (args.length == 3 && args[0].equalsIgnoreCase("notify")) return Arrays.asList("none", "op", "all");
+        if (args.length == 2 && args[0].equalsIgnoreCase("performance")) return Collections.singletonList("reset");
         return Collections.emptyList();
-    }
-
-    /**
-     * 调试日志输出
-     */
-    private void debug(String message) {
-        if (debugMode) {
-            getLogger().info("[DEBUG] " + message);
-        }
     }
 
     @Override
     public void onDisable() {
-        try {
-            if (IS_FOLIA) {
-                try {
-                    getServer().getGlobalRegionScheduler().cancelTasks(this);
-                } catch (Exception e) {
-                    getLogger().warning("Error canceling Folia tasks: " + e.getMessage());
-                }
-            } else {
-                getServer().getScheduler().cancelTasks(this);
-            }
-
-            synchronized (configLock) {
-                performanceStats.clear();
-                lastNotifyTimes.clear();
-                lastPerformanceValues.clear();
-                removalStats.clear();
-                customLimits.clear();
-                ignoredTypes.clear();
-                ignoredItems.clear();
-                protectionCache.clear();
-                chunkStatsCache.clear(); // 清理统计缓存
-            }
-
-            getLogger().info("ChunkLimiter v" + getDescription().getVersion() + " disabled successfully");
-        } catch (Exception e) {
-            getLogger().log(Level.WARNING, "Error during cleanup", e);
+        if (IS_FOLIA) {
+            try { getServer().getGlobalRegionScheduler().cancelTasks(this); } catch (Exception ignored) {}
+        } else {
+            getServer().getScheduler().cancelTasks(this);
         }
+        protectionCache.clear();
+        chunkStatsCache.clear();
+        removalStats.clear();
     }
 }
